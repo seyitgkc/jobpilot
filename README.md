@@ -65,6 +65,11 @@ jobpilot-browserd
 
 The browser daemon owns the single visible Chromium window. Required for
 capturing postings and filling forms; everything else works without it.
+Under the default `browser.focus_policy = "notify_only"`, the daemon hands
+focus back to whatever app you were using whenever launching or opening a
+tab pulls Chromium to the front; expect a sub-second flash instead of a
+stolen desktop. The tab focus action still brings the window forward on
+purpose.
 
 ```
 jobpilot-admin

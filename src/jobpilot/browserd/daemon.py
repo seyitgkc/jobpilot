@@ -16,7 +16,7 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from ..config import Config, DataPaths
 from ..db import open_db
 from ..core import events, repo
-from . import archive, verbs
+from . import archive, focus, verbs
 
 
 class TabCapReached(Exception):
@@ -38,15 +38,23 @@ class BrowserDaemon:
         self._context: BrowserContext | None = None
         self._conn = None
 
+    def _keeps_focus(self) -> bool:
+        return (
+            self.config.browser.focus_policy == "notify_only" and not self.headless
+        )
+
     async def start(self) -> None:
         self._conn = open_db(self.paths, self.config)
         self._mark_lost_tabs()
         self.paths.browser_profile_dir.mkdir(parents=True, exist_ok=True)
+        previous = await focus.front_bundle() if self._keeps_focus() else None
         self._playwright = await async_playwright().start()
         self._context = await self._playwright.chromium.launch_persistent_context(
             user_data_dir=str(self.paths.browser_profile_dir),
             headless=self.headless,
         )
+        if previous:
+            asyncio.get_running_loop().create_task(focus.restore(previous))
 
     async def stop(self) -> None:
         for job_id in list(self.tabs):
@@ -74,17 +82,23 @@ class BrowserDaemon:
     async def open_tab(self, job_id: int, url: str) -> dict:
         repo.get_job(self._conn, job_id)
         page = self.tabs.get(job_id)
+        previous = None
         if page is None:
             if len(self.tabs) >= self.config.browser.tab_cap:
                 raise TabCapReached(
                     f"tab cap of {self.config.browser.tab_cap} reached; "
                     f"open tabs: {self.open_tab_ids()}"
                 )
+            # Opening a window is what activates the browser on macOS;
+            # renavigating an existing tab does not.
+            previous = await focus.front_bundle() if self._keeps_focus() else None
             page = await self._context.new_page()
             self.tabs[job_id] = page
             page.on("close", lambda _page, job_id=job_id: self._on_page_closed(job_id))
         await self._navigate(page, url)
         repo.set_tab_state(self._conn, job_id, "open", "browserd")
+        if previous:
+            asyncio.get_running_loop().create_task(focus.restore(previous))
         return {"url": page.url, "title": await page.title()}
 
     async def _navigate(self, page: Page, url: str) -> None:
