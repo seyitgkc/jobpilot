@@ -84,6 +84,12 @@ class FakeFillClient:
     def page_state(self, job_id):
         return {"url": "https://example.com/done", "title": self.page_title}
 
+    def challenge(self, job_id):
+        return {"present": getattr(self, "captcha", False), "kind": "recaptcha"}
+
+    def focus(self, job_id):
+        self.focused = getattr(self, "focused", 0) + 1
+
     def close_tab(self, job_id):
         self.closed.append(job_id)
 
@@ -380,6 +386,30 @@ def test_submit_happy_path(conn, paths, tailored_job):
     assert application.confirmation_ref == "XYZ789"
     assert "confirmation_screenshot" in result.artifacts
     assert client.closed == [job.id]
+
+
+def test_submit_parks_on_human_verification(conn, paths, tailored_job):
+    client = FakeFillClient()
+    job = filled_job(conn, paths, client, tailored_job)
+    state.approve_submit(conn, job.id, "owner")
+    client.captcha = True
+
+    result = fill.submit_job(conn, paths, Config(), client, job.id)
+
+    assert not result.ok
+    assert result.blockers[0].kind == "captcha"
+    assert repo.get_job(conn, job.id).status == "filled"
+    assert client.focused == 1
+    assert client.closed == []
+    application = repo.get_application(conn, job.id)
+    assert application.submitted_at is None
+
+    # Solving it and submitting immediately is the only path forward, and it
+    # succeeds without asking again.
+    client.captcha = False
+    second = fill.submit_job(conn, paths, Config(), client, job.id)
+    assert second.ok
+    assert second.job.status == "submitted"
 
 
 def test_submit_without_mapped_control_parks(conn, paths, tailored_job):

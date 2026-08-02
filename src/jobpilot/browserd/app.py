@@ -133,6 +133,13 @@ def create_app(config: Config, paths: DataPaths, headless: bool = False) -> Fast
             raise translate(error) from error
         return Response(content=image, media_type="image/png")
 
+    @app.get("/tabs/{job_id}/challenge")
+    async def challenge(job_id: int) -> dict:
+        try:
+            return await daemon.challenge(job_id)
+        except Exception as error:
+            raise translate(error) from error
+
     @app.get("/tabs/{job_id}/page")
     async def page_state(job_id: int) -> dict:
         try:

@@ -42,6 +42,15 @@
       <form class="inline" method="post" action="/jobs/{{ job.id }}/approve-submit">
         <button>Approve submission</button>
       </form>
+      {% if job.status == "filled" %}
+      <form class="inline" method="post" action="/jobs/{{ job.id }}/submit"
+            onsubmit="return confirm('Send this application now?')">
+        <button class="primary">Approve and submit now</button>
+      </form>
+      <p class="muted small">If the site asks for human verification, the tab
+      comes forward; solve it there and use Submit now, and the application
+      goes out while the verification is still valid.</p>
+      {% endif %}
     {% else %}
       <p class="muted">Submission approval opens once the form is filled.</p>
     {% endif %}

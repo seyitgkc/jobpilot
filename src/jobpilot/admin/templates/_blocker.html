@@ -61,6 +61,12 @@
   </form>
   {% endif %}
 
+  {% if blocker.kind == "captcha" and view.job and blocker.status in ("open", "answered") %}
+  <form class="inline" method="post" action="/jobs/{{ view.job.id }}/submit">
+    <button class="primary">I solved it, submit now</button>
+  </form>
+  {% endif %}
+
   {% if blocker.status in ("open", "answered") %}
   <form class="inline" method="post" action="/blockers/{{ blocker.id }}/resolve">
     <button>

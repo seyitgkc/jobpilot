@@ -124,6 +124,27 @@ async def resolve_submit(page: Page, submit: dict | None) -> dict | None:
     return None
 
 
+_CHALLENGE_SELECTORS = (
+    ("recaptcha", "iframe[src*='recaptcha'], .g-recaptcha, #g-recaptcha"),
+    ("hcaptcha", "iframe[src*='hcaptcha'], .h-captcha"),
+    ("turnstile", "iframe[src*='challenges.cloudflare.com'], .cf-turnstile"),
+    ("friendly_captcha", ".frc-captcha"),
+)
+
+
+async def detect_challenge(page: Page) -> dict:
+    """Report a human verification widget on the page. Detection only: the
+    owner solves it, the system never touches it."""
+    for kind, selector in _CHALLENGE_SELECTORS:
+        try:
+            locator = page.locator(selector).first
+            if await locator.count() and await locator.is_visible():
+                return {"present": True, "kind": kind}
+        except Exception:
+            continue
+    return {"present": False, "kind": None}
+
+
 async def resolve_apply(page: Page, apply_control: dict | None) -> dict | None:
     label = (apply_control or {}).get("label") or "Apply"
     for role in ("button", "link"):

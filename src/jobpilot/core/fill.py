@@ -506,6 +506,33 @@ def submit_job(
         )
         return result
 
+    # Human verification is asked for here and nowhere else: the owner solves
+    # it and submission follows in the same visit, so the token stays fresh.
+    try:
+        challenge = client.challenge(job.id)
+    except Exception:
+        challenge = {"present": False}
+    if challenge.get("present"):
+        state.transition(conn, job.id, "filled", actor)
+        result.job = repo.get_job(conn, job_id)
+        try:
+            client.focus(job.id)
+        except Exception:
+            pass
+        result.blockers.append(
+            blockers.raise_blocker(
+                conn, job.id, "captcha", actor,
+                question=(
+                    "This application asks for human verification before it "
+                    "can be sent. The tab is in front: solve it there, then "
+                    "use Submit now, and the application goes out "
+                    "immediately while the verification is still valid."
+                ),
+                page_context={"kind": challenge.get("kind")},
+            )
+        )
+        return result
+
     application = repo.get_application(conn, job_id)
     selector_map = from_json(application.selector_map) if application.selector_map else {}
     if "submit" not in selector_map:

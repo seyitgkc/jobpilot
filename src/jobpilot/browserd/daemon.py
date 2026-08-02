@@ -221,6 +221,9 @@ class BrowserDaemon:
         page = self._page(job_id)
         return await verbs.crop(page, descriptor)
 
+    async def challenge(self, job_id: int) -> dict:
+        return await verbs.detect_challenge(self._page(job_id))
+
     async def page_state(self, job_id: int) -> dict:
         page = self._page(job_id)
         return {"url": page.url, "title": await page.title()}

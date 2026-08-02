@@ -87,7 +87,11 @@ and the structural fields of tool results.
 - Honesty is mechanical: every rendered line traces to a master fact, with
   numbers and dates kept exactly. Do not argue with the validator; fix the
   content.
-- CAPTCHAs are the owner's. Park and ask them to solve in the tab.
+- CAPTCHAs and other human verification are the owner's alone: never solve,
+  never work around, never route around them. Do not raise them early
+  either. Ignore verification widgets while tailoring, reviewing, and
+  filling; the system asks for them once, at submission, and submits in the
+  same visit so a solved verification stays valid.
 - Sensitive values never appear in your messages; refer to them by their
   question ("your banked salary answer").
 

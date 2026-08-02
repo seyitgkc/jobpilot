@@ -412,6 +412,59 @@ def test_credentials_validation_and_prefill(web, paths):
     assert f'value="{job.id}"' in page.text
 
 
+def test_approve_and_submit_now(web, paths, fill_client):
+    client, conn = web
+    job = seed_job(conn, paths, tailored=True)
+    fill.extract_form(conn, paths, Config(), fill_client, job.id)
+    state.approve_resume(conn, job.id, "owner")
+    fill.apply_mapping(
+        conn, paths, Config(), fill_client, job.id,
+        make_mapping(
+            cover=MappedField(
+                field_id="cover", value="Short and honest.",
+                source="answer_bank", confidence=0.9,
+            )
+        ),
+    )
+
+    page = client.get(f"/jobs/{job.id}")
+    assert "Approve and submit now" in page.text
+
+    response = client.post(f"/jobs/{job.id}/submit")
+    assert response.status_code == 303
+    assert repo.get_job(conn, job.id).status == "submitted"
+
+
+def test_captcha_blocker_offers_submit_now(web, paths, fill_client):
+    client, conn = web
+    job = seed_job(conn, paths, tailored=True)
+    fill.extract_form(conn, paths, Config(), fill_client, job.id)
+    state.approve_resume(conn, job.id, "owner")
+    fill.apply_mapping(
+        conn, paths, Config(), fill_client, job.id,
+        make_mapping(
+            cover=MappedField(
+                field_id="cover", value="Short and honest.",
+                source="answer_bank", confidence=0.9,
+            )
+        ),
+    )
+    fill_client.captcha = True
+
+    client.post(f"/jobs/{job.id}/submit")
+    parked = blockers.list_open(conn, job.id)
+    assert parked and parked[0].kind == "captcha"
+    assert repo.get_job(conn, job.id).status == "filled"
+
+    page = client.get(f"/blockers/{parked[0].id}")
+    assert "I solved it, submit now" in page.text
+
+    fill_client.captcha = False
+    assert client.post(f"/jobs/{job.id}/submit").status_code == 303
+    assert repo.get_job(conn, job.id).status == "submitted"
+    assert blockers.list_open(conn, job.id) == []
+
+
 def test_mark_submitted_by_hand_from_panel(web, paths):
     client, conn = web
     job = seed_job(conn, paths, tailored=True)

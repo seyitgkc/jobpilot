@@ -83,6 +83,9 @@ class BrowserClient:
             "POST", f"/tabs/{job_id}/crop", json={"descriptor": descriptor}
         ).content
 
+    def challenge(self, job_id: int) -> dict:
+        return self._request("GET", f"/tabs/{job_id}/challenge").json()
+
     def page_state(self, job_id: int) -> dict:
         return self._request("GET", f"/tabs/{job_id}/page").json()
 

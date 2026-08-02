@@ -19,6 +19,7 @@ from ..core import (
     context,
     credentials,
     events,
+    fill,
     mail,
     repo,
     resolve,
@@ -188,6 +189,35 @@ def create_app(
             has_glance=tailor.glance(conn, paths, config, job_id) is not None,
             abandonable=state.is_legal(job.status, "abandoned"),
         )
+
+    @app.post("/jobs/{job_id}/submit")
+    def submit_now(request: Request, job_id: int):
+        conn = db(request)
+        job = load_job(conn, job_id)
+        state.approve_submit(conn, job_id, "owner")
+        for blocker in blockers.list_open(conn, job_id):
+            if blocker.kind == "captcha":
+                blockers.set_status(conn, blocker.id, "resolved", "owner")
+        try:
+            result = fill.submit_job(
+                conn, paths, config, browser_client_factory(), job_id, actor="owner"
+            )
+        except BrowserDaemonError as error:
+            return message(
+                request, "Nothing was submitted",
+                f"The browser daemon did not respond ({error}). Start it with "
+                f"jobpilot-browserd, reopen the tab, and submit again.",
+                f"/jobs/{job_id}",
+            )
+        if result.blockers:
+            return RedirectResponse(f"/blockers/{result.blockers[0].id}", status_code=303)
+        if result.error:
+            return message(
+                request, "Nothing was submitted",
+                f"{result.error} The application is untouched.",
+                f"/jobs/{job_id}",
+            )
+        return back_to_job(job_id)
 
     @app.post("/jobs/{job_id}/mark-submitted")
     def mark_submitted_route(request: Request, job_id: int):
