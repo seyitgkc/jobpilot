@@ -110,13 +110,16 @@ def _contact_line(facts: FactBase) -> str:
     return " $|$ ".join(pieces)
 
 
-def _subheading(fact: Fact) -> dict:
+def _subheading(facts: FactBase, fact: Fact) -> dict:
     return {
         "org": tex_escape(fact.org or ""),
         "role": tex_escape(fact.role or ""),
         "location": tex_escape(fact.location or ""),
         "dates": _tex_dates(fact.dates),
         "title": tex_escape(fact.text or ""),
+        "bullets": [
+            tex_escape(bullet.text) for bullet in facts.bullets_of(fact.id)
+        ],
     }
 
 
@@ -142,23 +145,35 @@ def _build_sections(facts: FactBase, plan: TailorPlan) -> list[dict]:
             entries = []
             for planned in plan.experience:
                 fact = facts.by_id(planned.fact_id)
-                entry = _subheading(fact)
+                entry = _subheading(facts, fact)
                 entry["bullets"] = [
                     tex_escape(bullet.rendered_text) for bullet in planned.bullets
                 ]
                 entries.append(entry)
             sections.append({"kind": "experience", "entries": entries})
         elif name == "projects" and plan.projects:
-            names = ", ".join(
-                tex_escape(item.rendered_text) for item in plan.projects
-            )
-            sections.append({"kind": "projects", "names": names})
+            entries = []
+            for planned in plan.projects:
+                fact = facts.by_id(planned.fact_id)
+                entries.append(
+                    {
+                        "name": tex_escape(fact.text or ""),
+                        "stack": tex_escape(fact.label) if fact.label else None,
+                        "bullets": [
+                            tex_escape(bullet.rendered_text)
+                            for bullet in planned.bullets
+                        ],
+                    }
+                )
+            sections.append({"kind": "projects", "entries": entries})
         elif name == "education":
-            entries = [_subheading(fact) for fact in facts.of_kind("education")]
+            entries = [_subheading(facts, fact) for fact in facts.of_kind("education")]
             if entries:
                 sections.append({"kind": "education", "entries": entries})
         elif name == "certifications":
-            entries = [_subheading(fact) for fact in facts.of_kind("certification")]
+            entries = [
+                _subheading(facts, fact) for fact in facts.of_kind("certification")
+            ]
             if entries:
                 sections.append({"kind": "certifications", "entries": entries})
         elif name == "languages" and facts.profile.languages:
@@ -205,7 +220,13 @@ def full_plan(facts: FactBase) -> TailorPlan:
             for fact in facts.of_kind("experience")
         ],
         projects=[
-            RenderedFact(fact_id=fact.id, rendered_text=fact.text)
+            PlannedExperience(
+                fact_id=fact.id,
+                bullets=[
+                    RenderedFact(fact_id=bullet.id, rendered_text=bullet.text)
+                    for bullet in facts.bullets_of(fact.id)
+                ],
+            )
             for fact in facts.of_kind("project")
         ],
     )
@@ -222,21 +243,22 @@ def _bullet_pair(facts: FactBase, bullet: RenderedFact) -> dict:
     }
 
 
-def plan_diff(facts: FactBase, plan: TailorPlan) -> dict:
-    """Master-versus-plan data for the resume glance: what was dropped,
-    reordered, and reworded."""
-    experiences = []
-    planned_by_id = {entry.fact_id: entry for entry in plan.experience}
-    for fact in facts.of_kind("experience"):
+def _group_diff(facts: FactBase, kind: str, planned_entries) -> list[dict]:
+    entries = []
+    planned_by_id = {entry.fact_id: entry for entry in planned_entries}
+    for fact in facts.of_kind(kind):
         planned = planned_by_id.get(fact.id)
-        master_bullets = facts.bullets_of(fact.id)
-        master_ids = [bullet.id for bullet in master_bullets]
+        master_ids = [bullet.id for bullet in facts.bullets_of(fact.id)]
+        base = {
+            "fact_id": fact.id,
+            "org": fact.org,
+            "role": fact.role,
+            "name": fact.text or None,
+        }
         if planned is None:
-            experiences.append(
-                {
-                    "fact_id": fact.id,
-                    "org": fact.org,
-                    "role": fact.role,
+            entries.append(
+                base
+                | {
                     "included": False,
                     "dropped_bullets": master_ids,
                     "order_changed": False,
@@ -246,11 +268,9 @@ def plan_diff(facts: FactBase, plan: TailorPlan) -> dict:
             continue
         planned_ids = [bullet.fact_id for bullet in planned.bullets]
         kept_master_order = [b for b in master_ids if b in planned_ids]
-        experiences.append(
-            {
-                "fact_id": fact.id,
-                "org": fact.org,
-                "role": fact.role,
+        entries.append(
+            base
+            | {
                 "included": True,
                 "dropped_bullets": [b for b in master_ids if b not in planned_ids],
                 "order_changed": planned_ids != kept_master_order,
@@ -259,10 +279,16 @@ def plan_diff(facts: FactBase, plan: TailorPlan) -> dict:
                 ],
             }
         )
+    return entries
 
-    def selection(kind: str, planned_items: list[RenderedFact]) -> dict:
-        master = [fact.id for fact in facts.of_kind(kind)]
-        chosen = [item.fact_id for item in planned_items]
+
+def plan_diff(facts: FactBase, plan: TailorPlan) -> dict:
+    """Master-versus-plan data for the resume glance: what was dropped,
+    reordered, and reworded."""
+
+    def skill_selection() -> dict:
+        master = [fact.id for fact in facts.of_kind("skill_group")]
+        chosen = [item.fact_id for item in plan.skills]
         return {
             "included": chosen,
             "dropped": [fact_id for fact_id in master if fact_id not in chosen],
@@ -277,7 +303,7 @@ def plan_diff(facts: FactBase, plan: TailorPlan) -> dict:
         }
     return {
         "summary": summary,
-        "experiences": experiences,
-        "skills": selection("skill_group", plan.skills),
-        "projects": selection("project", plan.projects),
+        "experiences": _group_diff(facts, "experience", plan.experience),
+        "skills": skill_selection(),
+        "projects": _group_diff(facts, "project", plan.projects),
     }

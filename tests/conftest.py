@@ -53,18 +53,31 @@ facts:
   - id: proj.widget
     kind: project
     text: Widget Engine
+    label: Go, SQLite
+  - id: proj.widget.rules
+    kind: bullet
+    parent: proj.widget
+    text: Built a rules engine processing 10k events per second on a single node
   - id: edu.metu
     kind: education
     org: Middle East Technical University
     role: B.Sc. in Computer Engineering
     location: Ankara, Türkiye
     dates: 2014 - 2018
+  - id: edu.metu.coursework
+    kind: bullet
+    parent: edu.metu
+    text: "Relevant coursework: Databases, Networks, Operating Systems"
   - id: cert.cloud
     kind: certification
     text: Cloud Practitioner
     org: Example Institute
     location: Toronto, ON
     dates: Mar. 2020
+  - id: cert.cloud.exam
+    kind: bullet
+    parent: cert.cloud
+    text: Passed the practitioner exam on the first attempt
 """
 
 

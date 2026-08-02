@@ -99,7 +99,7 @@ def test_happy_path(conn, paths, job):
     assert "no first-person in bullets" in provider.calls[0].rules
     stored = tailor.load_plan_artifact(paths, result.artifacts["tailor_plan_json"])
     assert stored == result.plan
-    assert result.diff["projects"]["dropped"] == []
+    assert all(entry["included"] for entry in result.diff["projects"])
 
 
 def test_validator_reject_then_repair(conn, paths, job):

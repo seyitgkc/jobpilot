@@ -33,10 +33,10 @@ def test_load_facts_missing_file(paths):
         "  - {id: a, kind: project, text: P}\n  - {id: a, kind: project, text: Q}\n",
         # bullet without parent
         "profile: {name: X}\nfacts:\n  - {id: b, kind: bullet, text: T}\n",
-        # bullet parent is not an experience
+        # bullet parent cannot be a skill group
         "profile: {name: X}\nfacts:\n"
-        "  - {id: p, kind: project, text: P}\n"
-        "  - {id: b, kind: bullet, parent: p, text: T}\n",
+        "  - {id: s, kind: skill_group, label: L, text: Go}\n"
+        "  - {id: b, kind: bullet, parent: s, text: T}\n",
         # skill group without label
         "profile: {name: X}\nfacts:\n  - {id: s, kind: skill_group, text: Go}\n",
         # experience without dates
@@ -68,11 +68,15 @@ def test_render_full_plan(facts, paths):
     assert r"{Acme Corp}{Toronto, ON}" in tex
     assert "99.9\\% uptime" in tex
     assert r"\textbf{Languages}{: Go, C\#, SQL, Python}" in tex
-    assert "Widget Engine" in tex
+    assert r"{\textbf{Widget Engine} $|$ \emph{Go, SQLite}}{}" in tex
+    assert "rules engine processing 10k events" in tex
     assert "Middle East Technical University" in tex
+    assert "Relevant coursework: Databases, Networks, Operating Systems" in tex
     assert "Cloud Practitioner" in tex
+    assert "Passed the practitioner exam" in tex
     assert "English (Native) $|$ Turkish (Basic)" in tex
     assert "Türkiye" in tex
+    assert r"\needspace{3\baselineskip}" in tex
 
 
 def test_render_respects_section_order_and_drops(facts, paths):
@@ -123,7 +127,10 @@ def test_plan_diff_reports_drops_and_edits(facts):
     assert globex_diff["dropped_bullets"] == ["exp.globex.search"]
 
     assert diff["skills"]["dropped"] == ["skills.infra"]
-    assert diff["projects"]["dropped"] == ["proj.widget"]
+    widget_diff = next(e for e in diff["projects"] if e["fact_id"] == "proj.widget")
+    assert not widget_diff["included"]
+    assert widget_diff["name"] == "Widget Engine"
+    assert widget_diff["dropped_bullets"] == ["proj.widget.rules"]
     assert diff["summary"]["master"] == diff["summary"]["rendered"]
 
 

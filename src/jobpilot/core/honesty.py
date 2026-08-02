@@ -191,48 +191,42 @@ def validate_plan(
                 )
 
     seen_bullets: set[str] = set()
-    for planned in plan.experience:
-        experience = resolve(planned.fact_id, "experience")
-        for bullet in planned.bullets:
-            fact = resolve(bullet.fact_id, "bullet")
-            if fact is None:
-                continue
-            if bullet.fact_id in seen_bullets:
-                violations.append(
-                    Violation(
-                        code="duplicate_fact",
-                        fact_id=bullet.fact_id,
-                        message="bullet appears more than once in the plan",
-                    )
-                )
-                continue
-            seen_bullets.add(bullet.fact_id)
-            if experience is not None and fact.parent != experience.id:
-                violations.append(
-                    Violation(
-                        code="wrong_parent",
-                        fact_id=bullet.fact_id,
-                        message=(
-                            f"bullet belongs to {fact.parent!r}, placed under "
-                            f"{experience.id!r}"
-                        ),
-                    )
-                )
-                continue
-            _check_text(fact.id, fact.text, bullet.rendered_text, overlap_min, violations)
 
-    for item in plan.projects:
-        fact = resolve(item.fact_id, "project")
-        if fact is None:
-            continue
-        if item.rendered_text.strip() != fact.text.strip():
-            violations.append(
-                Violation(
-                    code="project_renamed",
-                    fact_id=fact.id,
-                    message="project entries keep their master name unchanged",
+    def check_group(planned_entries, parent_kind: str) -> None:
+        for planned in planned_entries:
+            parent = resolve(planned.fact_id, parent_kind)
+            for bullet in planned.bullets:
+                fact = resolve(bullet.fact_id, "bullet")
+                if fact is None:
+                    continue
+                if bullet.fact_id in seen_bullets:
+                    violations.append(
+                        Violation(
+                            code="duplicate_fact",
+                            fact_id=bullet.fact_id,
+                            message="bullet appears more than once in the plan",
+                        )
+                    )
+                    continue
+                seen_bullets.add(bullet.fact_id)
+                if parent is not None and fact.parent != parent.id:
+                    violations.append(
+                        Violation(
+                            code="wrong_parent",
+                            fact_id=bullet.fact_id,
+                            message=(
+                                f"bullet belongs to {fact.parent!r}, placed "
+                                f"under {parent.id!r}"
+                            ),
+                        )
+                    )
+                    continue
+                _check_text(
+                    fact.id, fact.text, bullet.rendered_text, overlap_min, violations
                 )
-            )
+
+    check_group(plan.experience, "experience")
+    check_group(plan.projects, "project")
 
     for rendered in _all_rendered(plan):
         for hit in rules_module.hard_violations(rendered.rendered_text, active_rules):
@@ -248,9 +242,9 @@ def validate_plan(
 
 
 def _all_rendered(plan: TailorPlan) -> list[RenderedFact]:
-    rendered = list(plan.skills) + list(plan.projects)
+    rendered = list(plan.skills)
     if plan.summary is not None:
         rendered.append(plan.summary)
-    for planned in plan.experience:
+    for planned in list(plan.experience) + list(plan.projects):
         rendered.extend(planned.bullets)
     return rendered

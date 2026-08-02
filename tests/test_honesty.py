@@ -2,7 +2,7 @@ import pytest
 
 from conftest import write_facts
 from jobpilot.core import honesty, resume, rules
-from jobpilot.providers.schemas import PlannedExperience, RenderedFact
+from jobpilot.providers.schemas import PlannedExperience, RenderedFact  # noqa: F401
 
 OVERLAP_MIN = 0.35
 
@@ -105,7 +105,7 @@ def test_unknown_and_mismatched_facts_rejected(facts):
     plan = plan.model_copy(
         update={
             "summary": RenderedFact(fact_id="nope", rendered_text="x"),
-            "projects": [RenderedFact(fact_id="exp.acme", rendered_text="Acme")],
+            "projects": [PlannedExperience(fact_id="exp.acme", bullets=[])],
         }
     )
     report = validate(plan, facts)
@@ -144,16 +144,44 @@ def test_skill_addition_rejected_selection_allowed(facts):
     assert validate(plan, facts).ok
 
 
-def test_project_rename_rejected(facts):
+def test_project_bullet_checks(facts):
     plan = resume.full_plan(facts)
-    plan = plan.model_copy(
+    embellished = plan.model_copy(
         update={
             "projects": [
-                RenderedFact(fact_id="proj.widget", rendered_text="Widget Engine Pro")
+                PlannedExperience(
+                    fact_id="proj.widget",
+                    bullets=[
+                        RenderedFact(
+                            fact_id="proj.widget.rules",
+                            rendered_text="Built a rules engine processing 50k events per second for Netflix",
+                        )
+                    ],
+                )
             ]
         }
     )
-    assert "project_renamed" in codes(validate(plan, facts))
+    report = validate(embellished, facts)
+    assert "number_changed" in codes(report)
+    assert "entity_added" in codes(report)
+
+    moved = plan.model_copy(
+        update={
+            "projects": [
+                PlannedExperience(
+                    fact_id="proj.widget",
+                    bullets=[
+                        RenderedFact(
+                            fact_id="exp.acme.gateway",
+                            rendered_text="Built the payments gateway in Go",
+                        )
+                    ],
+                )
+            ],
+            "experience": [],
+        }
+    )
+    assert "wrong_parent" in codes(validate(moved, facts))
 
 
 def test_bad_section_rejected(facts):

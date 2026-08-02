@@ -39,10 +39,9 @@ certifications, numbers, or dates that are absent from the master text of \
 that same fact.
 - Keep every number, percentage, and month-year exactly as written in the \
 master text.
-- A bullet may only appear under the experience it belongs to.
+- A bullet may only appear under the experience or project it belongs to.
 - A skill group's rendered_text may drop or reorder the master items and may \
 never add new ones.
-- Project entries keep their master names unchanged.
 - Prefer dropping weak or irrelevant content over rewriting it heavily.
 - Order experiences in the order they appear in the fact base.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -57,9 +58,16 @@ def compile_tex(tex_path: Path, timeout: int = 180) -> Path:
             "distribution (BasicTeX is enough) and make sure both are on PATH"
         )
     workdir = tex_path.parent
+    latexmk = _find("latexmk")
+    # latexmk spawns pdflatex through PATH, so the TeX directory must be on
+    # it even when latexmk itself was found through the fallback.
+    env = dict(os.environ)
+    tex_dir = str(Path(latexmk).parent)
+    if tex_dir not in env.get("PATH", "").split(os.pathsep):
+        env["PATH"] = tex_dir + os.pathsep + env.get("PATH", "")
     result = subprocess.run(
         [
-            _find("latexmk"),
+            latexmk,
             "-pdf",
             "-interaction=nonstopmode",
             "-halt-on-error",
@@ -70,9 +78,12 @@ def compile_tex(tex_path: Path, timeout: int = 180) -> Path:
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=env,
     )
     pdf_path = tex_path.with_suffix(".pdf")
     if result.returncode != 0 or not pdf_path.exists():
         excerpt = _log_excerpt(tex_path.with_suffix(".log"))
+        if excerpt == "(no log file produced)":
+            excerpt = (result.stderr or result.stdout or excerpt)[-1500:]
         raise CompileError(f"latexmk failed for {tex_path.name}", excerpt)
     return pdf_path

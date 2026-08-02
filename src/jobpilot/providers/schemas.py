@@ -72,14 +72,16 @@ class FactBase(BaseModel):
             if fact.id in seen:
                 raise ValueError(f"duplicate fact id {fact.id!r}")
             seen[fact.id] = fact
+        bullet_parents = ("experience", "project", "education", "certification")
         for fact in self.facts:
             if fact.kind == "bullet":
                 if fact.parent is None:
-                    raise ValueError(f"bullet {fact.id!r} has no parent experience")
+                    raise ValueError(f"bullet {fact.id!r} has no parent")
                 parent = seen.get(fact.parent)
-                if parent is None or parent.kind != "experience":
+                if parent is None or parent.kind not in bullet_parents:
                     raise ValueError(
-                        f"bullet {fact.id!r} parent {fact.parent!r} is not an experience"
+                        f"bullet {fact.id!r} parent {fact.parent!r} must be an "
+                        f"experience, project, education, or certification"
                     )
                 if not fact.text:
                     raise ValueError(f"bullet {fact.id!r} has empty text")
@@ -124,6 +126,10 @@ class RenderedFact(BaseModel):
 
 
 class PlannedExperience(BaseModel):
+    """One selected experience or project with its selected bullets. The
+    heading fields (org, role, dates, stack, name) always render from the
+    fact itself, so they are never model-writable."""
+
     model_config = ConfigDict(extra="forbid")
 
     fact_id: str
@@ -137,7 +143,7 @@ class TailorPlan(BaseModel):
     summary: RenderedFact | None = None
     skills: list[RenderedFact] = []
     experience: list[PlannedExperience] = []
-    projects: list[RenderedFact] = []
+    projects: list[PlannedExperience] = []
 
 
 FIELD_TYPES = (

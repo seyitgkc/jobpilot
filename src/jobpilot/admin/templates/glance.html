@@ -72,15 +72,35 @@
 </div>
 {% endfor %}
 
-<h2>Skills and projects</h2>
+<h2>Projects</h2>
+{% for entry in data.diff.projects %}
+<div class="card">
+  <p><b>{{ entry.name }}</b>
+    {% if not entry.included %}<span class="badge off">dropped entirely</span>{% endif %}
+    {% if entry.order_changed %}<span class="badge off">bullets reordered</span>{% endif %}
+  </p>
+  {% if entry.bullets %}
+  <table>
+    <tr><th>Master</th><th>Tailored</th></tr>
+    {% for bullet in entry.bullets %}
+    <tr class="{% if bullet.changed %}pair-changed{% endif %}">
+      <td class="pair-master">{{ bullet.master }}</td>
+      <td>{{ bullet.rendered }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% if entry.dropped_bullets %}
+  <p class="small muted">Dropped: {{ entry.dropped_bullets|join(", ") }}</p>
+  {% endif %}
+</div>
+{% endfor %}
+
+<h2>Skills</h2>
 <div class="card">
   <p><b>Skill groups kept:</b> {{ data.diff.skills.included|join(", ") or "none" }}</p>
   {% if data.diff.skills.dropped %}
   <p class="muted small">Dropped: {{ data.diff.skills.dropped|join(", ") }}</p>
-  {% endif %}
-  <p><b>Projects kept:</b> {{ data.diff.projects.included|join(", ") or "none" }}</p>
-  {% if data.diff.projects.dropped %}
-  <p class="muted small">Dropped: {{ data.diff.projects.dropped|join(", ") }}</p>
   {% endif %}
 </div>
 

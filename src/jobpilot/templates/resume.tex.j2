@@ -11,6 +11,9 @@
 \usepackage{fancyhdr}
 \usepackage[english]{babel}
 \usepackage{tabularx}
+% Page-break guard before headings; harmless no-op when the package is
+% not installed.
+\IfFileExists{needspace.sty}{\usepackage{needspace}}{\providecommand{\needspace}[1]{}}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \input{glyphtounicode}
@@ -54,6 +57,13 @@
     \end{tabular*}\vspace{-7pt}
 }
 
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+
 \renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
 
 \newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
@@ -90,6 +100,7 @@
 \section{Experience}
   \resumeSubHeadingListStart
 \BLOCK{for entry in section.entries}
+\needspace{3\baselineskip}
     \resumeSubheading
       {\VAR{entry.role}}{\VAR{entry.dates}}
       {\VAR{entry.org}}{\VAR{entry.location}}
@@ -102,7 +113,20 @@
   \resumeSubHeadingListEnd
 \BLOCK{elif section.kind == 'projects'}
 \section{Projects}
-  \small{\VAR{section.names}}
+  \resumeSubHeadingListStart
+\BLOCK{for entry in section.entries}
+\needspace{3\baselineskip}
+    \resumeProjectHeading
+      {\textbf{\VAR{entry.name}}\BLOCK{if entry.stack} $|$ \emph{\VAR{entry.stack}}\BLOCK{endif}}{}
+\BLOCK{if entry.bullets}
+      \resumeItemListStart
+\BLOCK{for bullet in entry.bullets}
+        \resumeItem{\VAR{bullet}}
+\BLOCK{endfor}
+      \resumeItemListEnd
+\BLOCK{endif}
+\BLOCK{endfor}
+  \resumeSubHeadingListEnd
 \BLOCK{elif section.kind == 'education'}
 \section{Education}
   \resumeSubHeadingListStart
@@ -110,15 +134,30 @@
     \resumeSubheading
       {\VAR{entry.org}}{\VAR{entry.location}}
       {\VAR{entry.role}}{\VAR{entry.dates}}
+\BLOCK{if entry.bullets}
+      \resumeItemListStart
+\BLOCK{for bullet in entry.bullets}
+        \resumeItem{\VAR{bullet}}
+\BLOCK{endfor}
+      \resumeItemListEnd
+\BLOCK{endif}
 \BLOCK{endfor}
   \resumeSubHeadingListEnd
 \BLOCK{elif section.kind == 'certifications'}
 \section{Certifications}
   \resumeSubHeadingListStart
 \BLOCK{for entry in section.entries}
+\needspace{3\baselineskip}
     \resumeSubheading
       {\VAR{entry.title}}{\VAR{entry.dates}}
       {\VAR{entry.org}}{\VAR{entry.location}}
+\BLOCK{if entry.bullets}
+      \resumeItemListStart
+\BLOCK{for bullet in entry.bullets}
+        \resumeItem{\VAR{bullet}}
+\BLOCK{endfor}
+      \resumeItemListEnd
+\BLOCK{endif}
 \BLOCK{endfor}
   \resumeSubHeadingListEnd
 \BLOCK{elif section.kind == 'languages'}
