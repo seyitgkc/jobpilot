@@ -112,6 +112,30 @@ def extract_form(
 
     kwargs = {"fetch_json": fetch_json} if fetch_json is not None else {}
     schema, method = adapters.extract_schema(job, raw_html, **kwargs)
+
+    # Posting pages that keep the form behind an apply step: the apply
+    # control is part of the extracted schema, so clicking it stays within
+    # the mapped-verb rules. One follow, then extraction runs on what it
+    # revealed.
+    if schema.submit_button is None and schema.apply_button is not None:
+        resolution = client.resolve(job.id, schema.model_dump())
+        apply_descriptor = resolution["resolved"].get("apply")
+        if apply_descriptor is not None:
+            outcomes = client.apply(
+                job.id,
+                [{"verb": "click_mapped", "field_id": "apply"}],
+                {"apply": apply_descriptor},
+            )
+            if outcomes and outcomes[0]["ok"]:
+                events.append(
+                    conn, actor=actor, kind="apply_gate_followed", job_id=job.id,
+                    payload={"label": schema.apply_button.label},
+                )
+                conn.commit()
+                page = client.archive(job.id)
+                raw_html = page.get("raw_html") or page["html"]
+                schema, method = adapters.extract_schema(job, raw_html, **kwargs)
+
     result.schema = schema
     if not schema.fields:
         result.blockers.append(

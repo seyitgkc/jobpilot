@@ -117,6 +117,15 @@ async def resolve_submit(page: Page, submit: dict | None) -> dict | None:
     return None
 
 
+async def resolve_apply(page: Page, apply_control: dict | None) -> dict | None:
+    label = (apply_control or {}).get("label") or "Apply"
+    for role in ("button", "link"):
+        descriptor = {"kind": "role", "role": role, "name": label}
+        if await _count(page, descriptor) >= 1:
+            return descriptor
+    return None
+
+
 async def resolve_schema(page: Page, schema: dict) -> dict:
     resolved: dict[str, dict] = {}
     unresolved: list[str] = []
@@ -131,6 +140,10 @@ async def resolve_schema(page: Page, schema: dict) -> dict:
         resolved["submit"] = submit
     elif schema.get("submit_button"):
         unresolved.append("submit")
+    if schema.get("apply_button"):
+        apply_descriptor = await resolve_apply(page, schema.get("apply_button"))
+        if apply_descriptor is not None:
+            resolved["apply"] = apply_descriptor
     return {"resolved": resolved, "unresolved": unresolved}
 
 

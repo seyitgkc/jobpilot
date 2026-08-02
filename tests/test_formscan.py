@@ -84,6 +84,28 @@ def test_scan_button_element():
     assert schema.submit_button.label == "Apply now"
 
 
+def test_apply_control_detected_behind_gate():
+    schema = formscan.scan(
+        """
+        <h1>Role</h1>
+        <label for="s">Link to This Job</label><input id="s" name="share_link">
+        <a href="#">Apply with LinkedIn</a>
+        <a href="#">Apply for This Job</a>
+        """
+    )
+    assert schema.submit_button is None
+    assert schema.apply_button is not None
+    assert schema.apply_button.label == "Apply for This Job"
+
+
+def test_apply_control_absent_on_real_form():
+    schema = formscan.scan(
+        "<form><label for='e'>Email</label><input id='e' name='email'>"
+        "<button type='submit'>Submit application</button></form>"
+    )
+    assert schema.apply_button is None
+
+
 def test_scan_empty_page():
     schema = formscan.scan("<html><body><p>Nothing here</p></body></html>")
     assert schema.fields == []

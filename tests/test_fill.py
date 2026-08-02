@@ -51,6 +51,11 @@ class FakeFillClient:
         }
         if form_schema.get("submit_button"):
             resolved["submit"] = {"kind": "role", "role": "button", "name": "Submit application"}
+        if form_schema.get("apply_button"):
+            resolved["apply"] = {
+                "kind": "role", "role": "link",
+                "name": form_schema["apply_button"]["label"],
+            }
         return {"resolved": resolved, "unresolved": self.unresolved}
 
     def apply(self, job_id, actions, selector_map):
@@ -89,6 +94,29 @@ class FakeFillClient:
         return b"%PDF-1.4 fake\n"
 
 
+POSTING_GATE_HTML = """
+<div class="posting">
+  <h1>Platform Engineer</h1>
+  <label for="share">Link to This Job</label><input id="share" name="share_link">
+  <a href="#apply">Apply for This Job</a>
+</div>
+"""
+
+
+class GatedFormClient(FakeFillClient):
+    """Posting page first; the real form appears after the apply click."""
+
+    def __init__(self):
+        super().__init__(html=POSTING_GATE_HTML)
+
+    def apply(self, job_id, actions, selector_map):
+        results = super().apply(job_id, actions, selector_map)
+        if any(action["verb"] == "click_mapped" and action["field_id"] == "apply"
+               for action in actions):
+            self.html = FORM_HTML
+        return results
+
+
 def make_mapping(**overrides):
     items = {
         "first_name": MappedField(field_id="first_name", value="Jamie", source="profile", confidence=0.95),
@@ -120,6 +148,33 @@ def tailored_job(conn, paths):
 
 def extract(conn, paths, client, job):
     return fill.extract_form(conn, paths, Config(), client, job.id)
+
+
+def test_extract_form_follows_apply_gate(conn, paths, tailored_job):
+    client = GatedFormClient()
+    result = fill.extract_form(conn, paths, Config(), client, tailored_job.id)
+
+    assert result.ok, [b.question for b in result.blockers]
+    assert result.schema.submit_button is not None
+    field_ids = {field.field_id for field in result.schema.fields}
+    assert "first_name" in field_ids and "share_link" not in field_ids
+    clicked = [
+        action for call in client.apply_calls for action in call
+        if action["verb"] == "click_mapped" and action["field_id"] == "apply"
+    ]
+    assert len(clicked) == 1
+
+    from jobpilot.core import events
+
+    kinds = [event.kind for event in events.timeline(conn, tailored_job.id)]
+    assert "apply_gate_followed" in kinds
+
+
+def test_extract_form_gate_without_apply_control_parks(conn, paths, tailored_job):
+    client = FakeFillClient(html="<div><p>Read about the role.</p></div>")
+    result = fill.extract_form(conn, paths, Config(), client, tailored_job.id)
+    assert not result.ok
+    assert result.blockers[0].kind == "extraction_failed"
 
 
 def test_extract_form_persists_schema_and_map(conn, paths, tailored_job):

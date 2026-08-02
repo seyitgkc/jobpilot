@@ -8,6 +8,8 @@ unlabeled and the caller decides whether that blocks the fill.
 
 from __future__ import annotations
 
+import re
+
 from bs4 import BeautifulSoup, Tag
 
 from ..providers.schemas import FormField, FormSchema
@@ -180,4 +182,25 @@ def scan(html: str) -> FormSchema:
             submit = FormField(field_id="submit", label=button.get("value") or "Submit")
             break
 
-    return FormSchema(fields=fields, submit_button=submit)
+    return FormSchema(
+        fields=fields, submit_button=submit, apply_button=_apply_control(soup)
+    )
+
+
+_APPLY_WORD = re.compile(r"\bapply\b", re.IGNORECASE)
+_APPLY_THIRD_PARTY = re.compile(r"linkedin|indeed|glassdoor", re.IGNORECASE)
+
+
+def _apply_control(soup: BeautifulSoup) -> FormField | None:
+    """The button or link that reveals the application form on posting
+    pages that gate it. Plain apply controls outrank third-party ones."""
+    candidates = []
+    for control in soup.find_all(["a", "button"]):
+        text = _text(control)
+        if not text or len(text) > 60 or not _APPLY_WORD.search(text):
+            continue
+        candidates.append((bool(_APPLY_THIRD_PARTY.search(text)), len(text), text))
+    if not candidates:
+        return None
+    candidates.sort()
+    return FormField(field_id="apply", label=candidates[0][2])

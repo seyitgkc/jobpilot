@@ -181,6 +181,14 @@ class BrowserDaemon:
     async def apply(self, job_id: int, actions: list[dict], selector_map: dict) -> list[dict]:
         page = self._page(job_id)
         results = await verbs.apply_actions(page, actions, selector_map)
+        if any(action.get("verb") == "click_mapped" for action in actions):
+            # A mapped click can navigate or reveal content; let it settle so
+            # the caller reads the page it produced.
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+            await asyncio.sleep(self.config.browser.settle_ms / 1000)
         events.append(
             self._conn, actor="browserd", kind="verbs_applied", job_id=job_id,
             payload={

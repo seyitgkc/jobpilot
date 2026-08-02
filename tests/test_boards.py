@@ -43,6 +43,14 @@ URL_CASES = [
         "https://acme.wd1.myworkdayjobs.com/careers/job/Berlin/Data-Engineer_JR-0042",
         ("workday", "JR-0042", "acme"),
     ),
+    (
+        "https://truecontext.bamboohr.com/careers/210",
+        ("bamboohr", "210", "truecontext"),
+    ),
+    (
+        "https://acme.bamboohr.com/careers/45/detail",
+        ("bamboohr", "45", "acme"),
+    ),
     ("https://example.com/careers/platform-engineer", ("other", None, None)),
 ]
 

@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from urllib.parse import parse_qs, urlparse
 
 BOARDS = frozenset(
-    {"greenhouse", "lever", "ashby", "smartrecruiters", "workday", "other"}
+    {"greenhouse", "lever", "ashby", "smartrecruiters", "workday", "bamboohr", "other"}
 )
 
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -82,6 +82,15 @@ def detect_from_url(url: str) -> BoardInfo:
         if slug is None and segments:
             slug = segments[0]
         return BoardInfo("smartrecruiters", req_id=req_id, company_slug=slug)
+
+    if host.endswith(".bamboohr.com"):
+        slug = host.split(".")[0] or None
+        req_id = None
+        if "careers" in segments:
+            index = segments.index("careers")
+            if index + 1 < len(segments) and segments[index + 1].isdigit():
+                req_id = segments[index + 1]
+        return BoardInfo("bamboohr", req_id=req_id, company_slug=slug)
 
     if host.endswith("myworkdayjobs.com"):
         slug = host.split(".")[0] or None

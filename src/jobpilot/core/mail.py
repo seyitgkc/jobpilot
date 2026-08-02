@@ -39,6 +39,7 @@ ATS_DOMAINS = (
     "workday.com",
     "icims.com",
     "jobvite.com",
+    "bamboohr.com",
 )
 
 CLASSIFICATIONS = ("confirmation", "rejection", "interview", "action_required", "other")

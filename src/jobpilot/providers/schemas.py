@@ -192,6 +192,9 @@ class FormSchema(BaseModel):
 
     fields: list[FormField] = []
     submit_button: FormField | None = None
+    # The control that reveals the real form on posting pages that keep it
+    # behind an apply step (BambooHR and kin).
+    apply_button: FormField | None = None
     pagination: bool = False
 
     def by_id(self, field_id: str) -> FormField | None:
