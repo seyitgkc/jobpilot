@@ -433,6 +433,24 @@ def test_mark_submitted_by_hand_from_panel(web, paths):
     assert "Mark submitted by hand" not in page.text
 
 
+def test_mail_detail_page_and_links(web, paths):
+    client, conn = web
+    from test_mail import eml
+
+    from jobpilot.core import mail as mail_module
+
+    stored = mail_module.store_message(conn, paths, eml(), "worker")
+    page = client.get("/mail")
+    assert f'href="/mail/{stored.id}"' in page.text
+    assert "Showing mail received after" in page.text
+
+    detail = client.get(f"/mail/{stored.id}")
+    assert detail.status_code == 200
+    assert "Thank you for applying to Acme" in detail.text
+    assert "We received your application" in detail.text
+    assert client.get("/mail/999").status_code == 404
+
+
 def test_dashboard_keeps_cli_hint(web):
     client, _conn = web
     page = client.get("/")

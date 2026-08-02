@@ -59,6 +59,10 @@ class MailConfig:
     imap_host: str = ""
     imap_user: str = ""
     imap_pass_env: str = "JOBPILOT_IMAP_PASS"
+    # When set, only messages addressed to this address (To, Cc, or delivery
+    # headers) are stored at all; the rest of the mailbox stays invisible to
+    # every surface. Empty means no address filter.
+    tracked_address: str = ""
     poll_seconds: int = 300
     match_threshold: float = 0.75
     mark_seen: bool = False

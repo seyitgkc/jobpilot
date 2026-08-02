@@ -13,15 +13,19 @@ def eml(
     body="We received your application for Platform Engineer.",
     references=None,
     date="Mon, 03 Aug 2026 10:00:00 +0000",
+    to="jamie@example.com",
+    cc=None,
 ):
     headers = [
         f"Message-ID: {message_id}",
         f"From: {sender}",
-        "To: jamie@example.com",
+        f"To: {to}",
         f"Subject: {subject}",
         f"Date: {date}",
         "Content-Type: text/plain; charset=utf-8",
     ]
+    if cc:
+        headers.append(f"Cc: {cc}")
     if references:
         headers.append(f"References: {references}")
     return ("\r\n".join(headers) + "\r\n\r\n" + body).encode()
@@ -46,9 +50,9 @@ def make_job(conn, *, company="Acme", title="Platform Engineer", req_id=None, su
     return repo.get_job(conn, job.id)
 
 
-def sync_with(conn, paths, raws, provider=None):
+def sync_with(conn, paths, raws, provider=None, config=None):
     return mail.sync(
-        conn, paths, Config(), provider=provider, fetch=lambda: iter(raws)
+        conn, paths, config or Config(), provider=provider, fetch=lambda: iter(raws)
     )
 
 
@@ -300,6 +304,62 @@ def test_mark_submitted_manually_reconciles(conn, paths):
     assert application.submitted_at is not None
     assert application.submitted_by == "owner"
     assert blockers.list_open(conn, job.id) == []
+
+
+def test_tracked_address_filter_blocks_storage(conn, paths):
+    from jobpilot.config import MailConfig
+
+    config = Config(mail=MailConfig(tracked_address="contact@seyitgokce.me"))
+    result = sync_with(
+        conn, paths,
+        [
+            eml(message_id="<other@x>", to="Seyit <seyitahmetgokce@icloud.com>"),
+            eml(message_id="<mine@x>", to="Seyit <contact@seyitgokce.me>"),
+            eml(message_id="<cc@x>", to="team@agency.example",
+                cc="contact@seyitgokce.me"),
+        ],
+        config=config,
+    )
+    assert result["fetched"] == 3
+    assert result["stored"] == 2
+    ids = [row.message_id for row in mail.list_unassigned(conn)]
+    assert "other@x" not in ids
+    assert set(ids) == {"mine@x", "cc@x"}
+    stored_files = list(paths.mail_dir.rglob("*.eml"))
+    assert len(stored_files) == 2
+    assert not any("other" in file.name for file in stored_files)
+
+
+def test_tracking_window_hides_and_skips_older_mail(conn, paths):
+    assert mail.tracking_start(conn) == mail.TRACKING_START_DEFAULT
+
+    calls = []
+
+    class CountingProvider:
+        def classify_mail(self, msg, open_jobs):
+            calls.append(msg.subject)
+            return MailClassification(classification="other", confidence=0.5)
+
+    sync_with(
+        conn, paths,
+        [
+            eml(message_id="<old@x>", subject="Your application from July",
+                date="Mon, 20 Jul 2026 10:00:00 +0000"),
+            eml(message_id="<new@x>", subject="Your application from August"),
+        ],
+        provider=CountingProvider(),
+    )
+    assert calls == ["Your application from August"]
+    queue_ids = [row.message_id for row in mail.list_unassigned(conn)]
+    assert queue_ids == ["new@x"]
+
+    from jobpilot.core import agenda
+
+    to_classify = agenda.agenda(conn)["mail_to_classify"]
+    assert all("July" not in (entry["subject"] or "") for entry in to_classify)
+
+    # The archive keeps the older message even though no surface lists it.
+    assert mail.get_mail(conn, 1).message_id == "old@x"
 
 
 def test_imap_password_prefers_env(monkeypatch):

@@ -3,7 +3,9 @@
 {% block content %}
 <h1>Mail</h1>
 <p class="muted small">Messages that could not be matched to a job on their
-own. Assign each one; threads on the same message inherit the assignment.</p>
+own. Assign each one; threads on the same message inherit the assignment.
+Showing mail received after {{ tracking_start }}{% if tracked_address %},
+addressed to {{ tracked_address }}{% endif %}.</p>
 
 {% if not unassigned %}
 <div class="card"><p>No unassigned mail.</p></div>
@@ -11,7 +13,7 @@ own. Assign each one; threads on the same message inherit the assignment.</p>
 
 {% for item in unassigned %}
 <div class="card">
-  <p><b>{{ item.mail.subject or "(no subject)" }}</b>
+  <p><b><a href="/mail/{{ item.mail.id }}">{{ item.mail.subject or "(no subject)" }}</a></b>
     {% if item.mail.classification %}<span class="badge off">{{ item.mail.classification|human }}</span>{% endif %}
   </p>
   <p class="muted small">{{ item.mail.sender or "unknown sender" }} &middot; {{ item.mail.received_at or "" }}</p>

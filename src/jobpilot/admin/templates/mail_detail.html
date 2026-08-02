@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Mail {{ item.id }}, jobpilot{% endblock %}
+{% block content %}
+<h1>{{ item.subject or "(no subject)" }}</h1>
+<p class="small"><a href="/mail">Mail</a>
+  {% if job %} &middot; <a href="/jobs/{{ job.id }}">#{{ job.id }} {{ job.title or "?" }} at {{ job.company or "?" }}</a>{% endif %}
+</p>
+<div class="card">
+  <p><b>{{ item.sender or "unknown sender" }}</b>
+    <span class="muted small">{{ item.received_at or "" }}</span>
+    {% if item.classification %}<span class="badge off">{{ item.classification|human }}</span>{% endif %}
+    {% if item.match_method %}<span class="badge off">matched by {{ item.match_method|human }}</span>{% endif %}
+  </p>
+  <pre class="mail-body">{{ body }}</pre>
+</div>
+{% endblock %}

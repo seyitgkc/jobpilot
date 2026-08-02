@@ -118,16 +118,16 @@
 {% endif %}
 
 {% if mail_rows %}
-<h2>Mail</h2>
+<h2>Mail timeline</h2>
 <table>
   <tr><th>Received</th><th>From</th><th>Subject</th><th>Classified</th><th>Match</th></tr>
   {% for row in mail_rows %}
   <tr>
     <td class="muted small">{{ row.received_at or "" }}</td>
     <td class="small">{{ row.sender or "" }}</td>
-    <td>{{ row.subject or "(no subject)" }}</td>
+    <td><a href="/mail/{{ row.id }}">{{ row.subject or "(no subject)" }}</a></td>
     <td>{{ row.classification|human if row.classification else "" }}</td>
-    <td class="muted small">{{ row.match_method or "" }}</td>
+    <td class="muted small">{{ row.match_method|human if row.match_method else "" }}</td>
   </tr>
   {% endfor %}
 </table>

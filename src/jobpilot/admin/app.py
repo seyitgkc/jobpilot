@@ -424,6 +424,26 @@ def create_app(
         return render(
             request, "mail.html",
             unassigned=unassigned, jobs=repo.list_jobs(conn),
+            tracking_start=mail.tracking_start(conn),
+            tracked_address=config.mail.tracked_address,
+        )
+
+    @app.get("/mail/{mail_id}")
+    def mail_detail(request: Request, mail_id: int):
+        conn = db(request)
+        try:
+            item = mail.get_mail(conn, mail_id)
+        except NotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        job = None
+        if item.job_id is not None:
+            try:
+                job = repo.get_job(conn, item.job_id)
+            except NotFound:
+                job = None
+        return render(
+            request, "mail_detail.html",
+            item=item, job=job, body=mail.body_text(paths, item, 20000),
         )
 
     @app.post("/mail/{mail_id}/assign")

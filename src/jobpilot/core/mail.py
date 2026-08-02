@@ -44,6 +44,27 @@ ATS_DOMAINS = (
 
 CLASSIFICATIONS = ("confirmation", "rejection", "interview", "action_required", "other")
 
+# The moment application tracking began; mail before it stays out of the
+# queue and out of classification. Seeded once into the setting table
+# (mail.tracking_start) and changed only by editing that setting.
+TRACKING_START_DEFAULT = "2026-08-02T05:00:00+00:00"
+
+
+def tracking_start(conn: sqlite3.Connection) -> str:
+    value = settings.get(conn, "mail.tracking_start")
+    if value is None:
+        with conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO setting(key, value) VALUES (?, ?)",
+                ("mail.tracking_start", TRACKING_START_DEFAULT),
+            )
+        return TRACKING_START_DEFAULT
+    return value
+
+
+def in_tracking_window(conn: sqlite3.Connection, mail: "Mail") -> bool:
+    return bool(mail.received_at) and mail.received_at >= tracking_start(conn)
+
 _STATE_FOR = {
     "confirmation": "acknowledged",
     "interview": "interview",
@@ -83,7 +104,9 @@ def get_mail(conn: sqlite3.Connection, mail_id: int) -> Mail:
 
 def list_unassigned(conn: sqlite3.Connection) -> list[Mail]:
     rows = conn.execute(
-        "SELECT * FROM mail WHERE status = 'needs_assignment' ORDER BY id DESC"
+        "SELECT * FROM mail WHERE status = 'needs_assignment'"
+        " AND received_at >= ? ORDER BY id DESC",
+        (tracking_start(conn),),
     ).fetchall()
     return [Mail.from_row(row) for row in rows]
 
@@ -133,6 +156,14 @@ def _parse(raw: bytes) -> dict:
         for header in ("References", "In-Reply-To")
         for ref in str(message.get(header) or "").split()
     )
+    recipients = []
+    for header in ("To", "Cc", "Delivered-To", "X-Original-To", "Envelope-To"):
+        value = str(message.get(header) or "").strip()
+        if not value:
+            continue
+        for _name, address in email.utils.getaddresses([value]):
+            if address:
+                recipients.append(address.lower())
     return {
         "message_id": message_id or None,
         "sender": sender or None,
@@ -140,16 +171,25 @@ def _parse(raw: bytes) -> dict:
         "subject": str(message.get("Subject") or "") or None,
         "received_at": received,
         "references": references or None,
+        "recipients": recipients,
         "body": _extract_body(message),
     }
 
 
 def store_message(
-    conn: sqlite3.Connection, paths: DataPaths, raw: bytes, actor: str = "worker"
+    conn: sqlite3.Connection,
+    paths: DataPaths,
+    raw: bytes,
+    actor: str = "worker",
+    tracked_address: str | None = None,
 ) -> Mail | None:
     """Archive one raw message; returns None when the message id was already
-    stored."""
+    stored, or when a tracked address is set and the message was not sent to
+    it. Filtered messages never touch the database or the disk, so no
+    surface can see them."""
     parsed = _parse(raw)
+    if tracked_address and tracked_address.lower() not in parsed["recipients"]:
+        return None
     message_id = parsed["message_id"] or f"missing-id-{hash(raw)}"
     existing = conn.execute(
         "SELECT id FROM mail WHERE message_id = ?", (message_id,)
@@ -453,15 +493,20 @@ def sync(
     fetched = stored = matched = classified = 0
     for raw in fetch():
         fetched += 1
-        mail = store_message(conn, paths, raw, actor)
+        mail = store_message(
+            conn, paths, raw, actor,
+            tracked_address=config.mail.tracked_address or None,
+        )
         if mail is None:
             continue
         stored += 1
         mail = _match(conn, paths, mail, config)
         if mail.job_id is not None:
             matched += 1
-        if provider is not None and likely_relevant(
-            conn, mail, body_text(paths, mail)
+        if (
+            provider is not None
+            and in_tracking_window(conn, mail)
+            and likely_relevant(conn, mail, body_text(paths, mail))
         ):
             try:
                 result = provider.classify_mail(

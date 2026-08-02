@@ -60,7 +60,9 @@ def agenda(conn: sqlite3.Connection) -> dict:
         for row in (
             mail.Mail.from_row(r)
             for r in conn.execute(
-                "SELECT * FROM mail WHERE classification IS NULL ORDER BY id DESC"
+                "SELECT * FROM mail WHERE classification IS NULL"
+                " AND received_at >= ? ORDER BY id DESC",
+                (mail.tracking_start(conn),),
             )
         )
         if mail.likely_relevant(conn, row)
