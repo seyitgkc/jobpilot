@@ -1,0 +1,38 @@
+# Copy to config.toml and edit. Missing file or missing keys fall back to
+# these defaults. Secrets never go in this file; *_env keys name the
+# environment variable that holds the secret.
+
+[gates]
+resume_glance = true
+submit_approval = true
+auto_submit = false
+
+[browser]
+tab_cap = 8
+focus_policy = "notify_only"
+settle_ms = 1500
+
+[ai]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+temperature = 0.2
+max_tokens = 8192
+
+[notify]
+channels = ["cowork", "ntfy"]
+ntfy_topic = ""
+email_to = ""
+
+[mail]
+imap_host = ""
+imap_user = ""
+imap_pass_env = "JOBPILOT_IMAP_PASS"
+poll_seconds = 300
+match_threshold = 0.75
+mark_seen = false
+
+[validator]
+token_overlap_min = 0.35
+
+[paths]
+data_root = "./data"
