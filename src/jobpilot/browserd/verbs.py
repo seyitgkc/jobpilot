@@ -99,6 +99,13 @@ async def resolve_field(page: Page, field: dict) -> dict | None:
         if await _count(page, descriptor) == 1:
             return descriptor
 
+    if field_type == "select" and label:
+        # Styled dropdowns: an ARIA combobox carrying the label as its
+        # accessible name.
+        descriptor = {"kind": "role", "role": "combobox", "name": label}
+        if await _count(page, descriptor) == 1:
+            return descriptor
+
     if field_type == "file":
         descriptor = {"kind": "css", "selector": "input[type=file]"}
         if await _count(page, descriptor) == 1:
@@ -177,14 +184,43 @@ async def _apply_one(page: Page, action: dict, selector_map: dict) -> dict:
             else:
                 locator = _locator(page, descriptor)
                 labels = value if isinstance(value, list) else [str(value)]
+                tag = ""
                 try:
-                    chosen = await locator.select_option(label=labels, timeout=8000)
-                except Exception:
-                    chosen = await locator.select_option(
-                        value=[str(item) for item in labels], timeout=8000
+                    tag = await locator.evaluate(
+                        "el => el.tagName.toLowerCase()", timeout=3000
                     )
-                result["ok"] = True
-                result["verified"] = len(chosen) == len(labels)
+                except Exception:
+                    pass
+                if tag == "select":
+                    try:
+                        chosen = await locator.select_option(label=labels, timeout=8000)
+                    except Exception:
+                        chosen = await locator.select_option(
+                            value=[str(item) for item in labels], timeout=8000
+                        )
+                    result["ok"] = True
+                    result["verified"] = len(chosen) == len(labels)
+                else:
+                    # ARIA combobox: open it, then pick each option by its
+                    # visible name.
+                    picked = 0
+                    for item in labels:
+                        option = page.get_by_role("option", name=str(item)).first
+                        if not await option.is_visible():
+                            await locator.click(timeout=8000)
+                        await option.click(timeout=8000)
+                        picked += 1
+                    result["ok"] = True
+                    read_back = ""
+                    for reader in ("input_value", "inner_text"):
+                        try:
+                            read_back = await getattr(locator, reader)(timeout=2000)
+                            break
+                        except Exception:
+                            continue
+                    result["verified"] = picked == len(labels) and all(
+                        str(item).lower() in read_back.lower() for item in labels
+                    )
         elif verb == "check":
             locator = _locator(page, descriptor)
             desired = bool(action.get("value"))

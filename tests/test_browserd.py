@@ -56,9 +56,25 @@ FORM_HTML = """<!doctype html>
   <label for="agree">I agree to the terms</label>
   <input id="agree" name="agree" type="checkbox">
   <label for="cv">Resume</label><input id="cv" name="resume" type="file">
+  <span id="sen-label">Seniority level</span>
+  <div id="seniority" role="combobox" aria-labelledby="sen-label"
+       aria-controls="sen-list" tabindex="0">Choose one</div>
+  <ul id="sen-list" role="listbox" hidden>
+    <li role="option" tabindex="-1">Junior</li>
+    <li role="option" tabindex="-1">Senior</li>
+  </ul>
   <button type="submit">Submit application</button>
 </form>
 <script>
+var cbx = document.getElementById("seniority");
+var list = document.getElementById("sen-list");
+cbx.addEventListener("click", function () { list.hidden = !list.hidden; });
+list.addEventListener("click", function (event) {
+  if (event.target.getAttribute("role") === "option") {
+    cbx.textContent = event.target.textContent;
+    list.hidden = true;
+  }
+});
 document.querySelector("form").addEventListener("submit", function (event) {
   event.preventDefault();
   document.title = "Sent. Confirmation number: XYZ789";
@@ -207,8 +223,14 @@ def test_form_verbs_end_to_end(env, site_url, tmp_path):
         resolution = client.resolve(job.id, schema.model_dump())
         resolved = resolution["resolved"]
         assert resolution["unresolved"] == []
-        for field_id in ("first_name", "email", "experience", "agree", "resume", "submit"):
+        for field_id in (
+            "first_name", "email", "experience", "agree", "resume",
+            "seniority", "submit",
+        ):
             assert field_id in resolved
+        seniority_field = schema.by_id("seniority")
+        assert seniority_field.type == "select"
+        assert seniority_field.options == ["Junior", "Senior"]
 
         resume_file = tmp_path / "resume.pdf"
         resume_file.write_bytes(b"%PDF-1.4 fake")
@@ -216,6 +238,7 @@ def test_form_verbs_end_to_end(env, site_url, tmp_path):
             {"verb": "set", "field_id": "first_name", "value": "Jamie"},
             {"verb": "set", "field_id": "email", "value": "jamie@example.com"},
             {"verb": "select", "field_id": "experience", "value": "4-6"},
+            {"verb": "select", "field_id": "seniority", "value": "Senior"},
             {"verb": "check", "field_id": "agree", "value": True},
             {"verb": "upload", "field_id": "resume", "path": str(resume_file)},
         ]

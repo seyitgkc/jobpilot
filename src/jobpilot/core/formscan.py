@@ -156,6 +156,9 @@ def scan(html: str) -> FormSchema:
                 for option in control.find_all("option")
                 if (text := _text(option)) and option.get("value", text) != ""
             ]
+        elif control.get("role") == "combobox":
+            field_type = "select"
+            options = _listbox_options(soup, control)
         else:
             field_type = _TEXT_TYPES.get(input_type, "text")
             options = []
@@ -172,6 +175,26 @@ def scan(html: str) -> FormSchema:
             )
         )
 
+    # Styled dropdowns built from non-form elements: anything else carrying
+    # the combobox role.
+    for control in soup.find_all(attrs={"role": "combobox"}):
+        if control.name in ("input", "select", "textarea"):
+            continue
+        if control.has_attr("disabled") or control.get("aria-hidden") == "true":
+            continue
+        index += 1
+        label = _label_for(soup, control)
+        fields.append(
+            FormField(
+                field_id=_field_id(control, label, index),
+                label=label,
+                type="select",
+                options=_listbox_options(soup, control),
+                required=_required(control),
+                section=_section_for(control),
+            )
+        )
+
     submit = None
     for button in soup.find_all(["button", "input"]):
         button_type = (button.get("type") or "").lower()
@@ -185,6 +208,24 @@ def scan(html: str) -> FormSchema:
     return FormSchema(
         fields=fields, submit_button=submit, apply_button=_apply_control(soup)
     )
+
+
+def _listbox_options(soup: BeautifulSoup, control: Tag) -> list[str]:
+    """Options of a combobox's linked listbox, when it is present in the DOM
+    rather than rendered on open."""
+    for attr in ("aria-controls", "aria-owns"):
+        ref = control.get(attr)
+        if not ref:
+            continue
+        listbox = soup.find(id=ref.split()[0])
+        if listbox is None:
+            continue
+        return [
+            text
+            for option in listbox.find_all(attrs={"role": "option"})
+            if (text := _text(option))
+        ]
+    return []
 
 
 _APPLY_WORD = re.compile(r"\bapply\b", re.IGNORECASE)

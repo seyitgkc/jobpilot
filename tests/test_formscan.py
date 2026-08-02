@@ -84,6 +84,28 @@ def test_scan_button_element():
     assert schema.submit_button.label == "Apply now"
 
 
+def test_combobox_widgets_scan_as_selects():
+    schema = formscan.scan(
+        """
+        <span id="sen-label">Seniority level</span>
+        <div id="sen" role="combobox" aria-labelledby="sen-label"
+             aria-controls="sen-list" aria-required="true">Choose</div>
+        <ul id="sen-list" role="listbox">
+          <li role="option">Junior</li><li role="option">Senior</li>
+        </ul>
+        <input name="team" role="combobox" aria-label="Team" aria-owns="team-list">
+        <ul id="team-list" role="listbox"><li role="option">Platform</li></ul>
+        """
+    )
+    by_id = {field.field_id: field for field in schema.fields}
+    assert by_id["sen"].type == "select"
+    assert by_id["sen"].label == "Seniority level"
+    assert by_id["sen"].options == ["Junior", "Senior"]
+    assert by_id["sen"].required
+    assert by_id["team"].type == "select"
+    assert by_id["team"].options == ["Platform"]
+
+
 def test_apply_control_detected_behind_gate():
     schema = formscan.scan(
         """
