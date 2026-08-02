@@ -416,19 +416,50 @@ def sync(
     }
 
 
+KEYCHAIN_SERVICE = "jobpilot-imap"
+
+
+def imap_password(config: Config) -> str:
+    """The IMAP secret: the configured environment variable when set, else
+    the macOS keychain item for the account. The secret never lives in
+    config or the database."""
+    import os
+    import subprocess
+    import sys
+
+    password = os.environ.get(config.mail.imap_pass_env or "", "")
+    if password:
+        return password
+    if sys.platform == "darwin":
+        try:
+            result = subprocess.run(
+                [
+                    "security", "find-generic-password",
+                    "-s", KEYCHAIN_SERVICE,
+                    "-a", config.mail.imap_user,
+                    "-w",
+                ],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    raise RuntimeError(
+        f"IMAP password not found. Set ${config.mail.imap_pass_env}, or store "
+        f"it in the keychain with: security add-generic-password "
+        f"-s {KEYCHAIN_SERVICE} -a {config.mail.imap_user} -w"
+    )
+
+
 def _imap_fetch(conn: sqlite3.Connection, config: Config):
     """Read-only IMAP pull of UIDs above the stored cursor."""
     if not config.mail.imap_host or not config.mail.imap_user:
         return
-    import os
 
     from imapclient import IMAPClient
 
-    password = os.environ.get(config.mail.imap_pass_env or "", "")
-    if not password:
-        raise RuntimeError(
-            f"IMAP password not found in ${config.mail.imap_pass_env}"
-        )
+    password = imap_password(config)
     last_uid = int(settings.get(conn, "mail.last_uid", "0"))
     with IMAPClient(config.mail.imap_host, ssl=True) as client:
         client.login(config.mail.imap_user, password)

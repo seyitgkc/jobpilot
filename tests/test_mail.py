@@ -210,3 +210,59 @@ def test_bad_classification_rejected(conn, paths):
     sync_with(conn, paths, [eml()])
     with pytest.raises(ValueError):
         mail.set_classification(conn, 1, "spam", "owner")
+
+
+def test_imap_password_prefers_env(monkeypatch):
+    from jobpilot.config import Config, MailConfig
+
+    config = Config(mail=MailConfig(imap_user="a@b.c"))
+    monkeypatch.setenv("JOBPILOT_IMAP_PASS", "from-env")
+    assert mail.imap_password(config) == "from-env"
+
+
+def test_imap_password_falls_back_to_keychain(monkeypatch):
+    import subprocess
+    import sys
+
+    from jobpilot.config import Config, MailConfig
+
+    config = Config(mail=MailConfig(imap_user="a@b.c"))
+    monkeypatch.delenv("JOBPILOT_IMAP_PASS", raising=False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    calls = {}
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=15):
+        calls["cmd"] = cmd
+
+        class Result:
+            returncode = 0
+            stdout = "from-keychain\n"
+
+        return Result()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert mail.imap_password(config) == "from-keychain"
+    assert mail.KEYCHAIN_SERVICE in calls["cmd"]
+    assert "a@b.c" in calls["cmd"]
+
+
+def test_imap_password_missing_raises(monkeypatch):
+    import subprocess
+
+    from jobpilot.config import Config, MailConfig
+
+    config = Config(mail=MailConfig(imap_user="a@b.c"))
+    monkeypatch.delenv("JOBPILOT_IMAP_PASS", raising=False)
+
+    def fake_run(cmd, capture_output=True, text=True, timeout=15):
+        class Result:
+            returncode = 44
+            stdout = ""
+
+        return Result()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError) as excinfo:
+        mail.imap_password(config)
+    assert "security add-generic-password" in str(excinfo.value)
