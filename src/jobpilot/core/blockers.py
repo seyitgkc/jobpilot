@@ -69,7 +69,11 @@ def raise_blocker(
             job_id=job_id,
             payload={"blocker_id": blocker_id, "kind": kind, "question": question},
         )
-    return get_blocker(conn, blocker_id)
+    blocker = get_blocker(conn, blocker_id)
+    from . import notify
+
+    notify.blocker_raised_best_effort(blocker)
+    return blocker
 
 
 def get_blocker(conn: sqlite3.Connection, blocker_id: int) -> Blocker:

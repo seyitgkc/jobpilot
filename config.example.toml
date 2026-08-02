@@ -23,6 +23,7 @@ max_tokens = 8192
 channels = ["cowork", "ntfy"]
 ntfy_topic = ""
 email_to = ""
+reminder_hours = 6
 
 [mail]
 imap_host = ""

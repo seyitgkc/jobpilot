@@ -32,6 +32,7 @@ from ..core import (
 )
 from ..core.browser_client import BrowserClient
 from ..core import capture as capture_module
+from ..core import mail as mail_module
 from ..providers.schemas import FieldMapping, TailorPlan
 from ..util import from_json
 
@@ -304,6 +305,47 @@ class JobpilotApi:
             )
         )
 
+    def mail_sync(self) -> dict:
+        return mail_module.sync(self.conn, self.paths, self.config, actor="owner")
+
+    def mail_unassigned(self) -> list[dict]:
+        result = []
+        for mail in mail_module.list_unassigned(self.conn):
+            ranked = mail_module.candidates(self.conn, self.paths, mail)
+            result.append(
+                _plain(
+                    {
+                        "mail": mail,
+                        "body_preview": mail_module.body_text(self.paths, mail, 600),
+                        "candidates": [
+                            {"job": item["job"], "score": item["score"]}
+                            for item in ranked
+                        ],
+                    }
+                )
+            )
+        return result
+
+    def mail_assign(self, mail_id: int, job_id: int) -> dict:
+        return _plain(mail_module.assign(self.conn, self.paths, mail_id, job_id, "owner"))
+
+    def mail_list(self, job_id: int) -> list[dict]:
+        return _plain(mail_module.list_for_job(self.conn, job_id))
+
+    def mail_classify_context(self, mail_id: int) -> dict:
+        mail = mail_module.get_mail(self.conn, mail_id)
+        return _plain(
+            {
+                "message": mail_module.to_message(self.paths, mail),
+                "open_jobs": mail_module.open_job_summaries(self.conn),
+            }
+        )
+
+    def mail_classify(self, mail_id: int, classification: str) -> dict:
+        return _plain(
+            mail_module.set_classification(self.conn, mail_id, classification, "owner")
+        )
+
     def credential_set(self, scope: str, username: str, password: str) -> dict:
         credentials.set_credential(self.conn, scope, username, password, "owner")
         return {"saved": scope, "username": username}
@@ -343,6 +385,8 @@ def create_server(
         "blocker_list", "blocker_get", "blocker_answer", "blocker_execute",
         "blocker_mark_manual_resolved",
         "tab_focus", "tab_screenshot", "tab_replay",
+        "mail_sync", "mail_unassigned", "mail_assign", "mail_list",
+        "mail_classify_context", "mail_classify",
         "answer_bank_list", "answer_bank_set",
         "rules_list", "rules_propose", "rules_set_status",
         "context_get", "context_append", "context_supersede",

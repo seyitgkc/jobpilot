@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Mail, jobpilot{% endblock %}
+{% block content %}
+<h1>Mail</h1>
+<p class="muted small">Messages that could not be matched to a job on their
+own. Assign each one; threads on the same message inherit the assignment.</p>
+
+{% if not unassigned %}
+<div class="card"><p>No unassigned mail.</p></div>
+{% endif %}
+
+{% for item in unassigned %}
+<div class="card">
+  <p><b>{{ item.mail.subject or "(no subject)" }}</b>
+    {% if item.mail.classification %}<span class="badge off">{{ item.mail.classification|human }}</span>{% endif %}
+  </p>
+  <p class="muted small">{{ item.mail.sender or "unknown sender" }} &middot; {{ item.mail.received_at or "" }}</p>
+  {% if item.preview %}<p class="small">{{ item.preview }}</p>{% endif %}
+  {% if item.candidates %}
+  <p class="small">Likely:
+    {% for candidate in item.candidates %}
+    #{{ candidate.job.id }} {{ candidate.job.company or "?" }} ({{ candidate.score }}){% if not loop.last %}, {% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
+  <form class="inline" method="post" action="/mail/{{ item.mail.id }}/assign">
+    <select name="job_id" required>
+      <option value="">Assign to</option>
+      {% for candidate in item.candidates %}
+      <option value="{{ candidate.job.id }}">#{{ candidate.job.id }} {{ candidate.job.company or "?" }} {{ candidate.job.title or "" }}</option>
+      {% endfor %}
+      {% for job in jobs %}
+      <option value="{{ job.id }}">#{{ job.id }} {{ job.company or "?" }} {{ job.title or "" }}</option>
+      {% endfor %}
+    </select>
+    <button class="primary">Assign</button>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

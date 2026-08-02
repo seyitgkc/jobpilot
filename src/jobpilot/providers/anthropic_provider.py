@@ -20,6 +20,8 @@ from .schemas import (
     FieldMapping,
     FormSchema,
     JobSummary,
+    MailClassification,
+    MailMessage,
     TailorConstraints,
     TailorPlan,
 )
@@ -122,6 +124,20 @@ def _map_message(schema: FormSchema, answers: AnswerBank, job: JobSummary) -> st
     return "\n".join(parts)
 
 
+_CLASSIFY_SYSTEM = """\
+You classify one email about the owner's job applications.
+
+Categories:
+- confirmation: the application was received or acknowledged.
+- rejection: the application will not move forward.
+- interview: an interview, screen, or call is being offered or scheduled.
+- action_required: the owner must do something (assessment, document, form).
+- other: anything else, including newsletters and unrelated recruiting spam.
+
+Judge only from the message content; the open applications list is context.
+Set confidence between 0 and 1."""
+
+
 class AnthropicProvider:
     def __init__(self, config: AIConfig):
         self.config = config
@@ -173,4 +189,20 @@ class AnthropicProvider:
     ) -> FieldMapping:
         return self._parse_call(
             "map_fields", _MAP_SYSTEM, _map_message(schema, answers, job), FieldMapping
+        )
+
+    def classify_mail(
+        self, msg: MailMessage, open_jobs: list[JobSummary]
+    ) -> MailClassification:
+        user = "\n".join(
+            [
+                "Message (JSON):",
+                msg.model_dump_json(),
+                "",
+                "Open applications (JSON):",
+                "[" + ", ".join(job.model_dump_json(exclude={"rules"}) for job in open_jobs) + "]",
+            ]
+        )
+        return self._parse_call(
+            "classify_mail", _CLASSIFY_SYSTEM, user, MailClassification
         )

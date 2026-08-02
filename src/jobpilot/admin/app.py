@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..config import Config, DataPaths
 from ..db import open_db
-from ..core import blockers, context, events, repo, resolve, rules, settings, state, tailor
+from ..core import blockers, context, events, mail, repo, resolve, rules, settings, state, tailor
 from ..core.browser_client import BrowserClient, BrowserDaemonError
 from ..core.repo import NotFound
 from ..util import from_json
@@ -128,6 +128,7 @@ def create_app(
             request,
             "job_detail.html",
             job=job,
+            mail_rows=mail.list_for_job(conn, job_id),
             application=repo.get_application(conn, job_id),
             artifacts=repo.list_artifacts(conn, job_id),
             open_blockers=blockers.list_open(conn, job_id),
@@ -337,6 +338,31 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return RedirectResponse("/blockers", status_code=303)
+
+    @app.get("/mail")
+    def mail_page(request: Request):
+        conn = db(request)
+        unassigned = [
+            {
+                "mail": item,
+                "preview": mail.body_text(paths, item, 400),
+                "candidates": mail.candidates(conn, paths, item),
+            }
+            for item in mail.list_unassigned(conn)
+        ]
+        return render(
+            request, "mail.html",
+            unassigned=unassigned, jobs=repo.list_jobs(conn),
+        )
+
+    @app.post("/mail/{mail_id}/assign")
+    def mail_assign(request: Request, mail_id: int, job_id: int = Form(...)):
+        conn = db(request)
+        try:
+            mail.assign(conn, paths, mail_id, job_id, "owner")
+        except NotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return RedirectResponse("/mail", status_code=303)
 
     @app.get("/rules")
     def rules_page(request: Request):

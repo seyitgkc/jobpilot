@@ -10,6 +10,8 @@ from .schemas import (
     FieldMapping,
     FormSchema,
     JobSummary,
+    MailClassification,
+    MailMessage,
     TailorConstraints,
     TailorPlan,
 )
@@ -34,6 +36,10 @@ class AIProvider(Protocol):
         self, schema: FormSchema, answers: AnswerBank, job: JobSummary
     ) -> FieldMapping: ...
 
+    def classify_mail(
+        self, msg: MailMessage, open_jobs: list[JobSummary]
+    ) -> MailClassification: ...
+
 
 class NullProvider:
     def tailor(
@@ -44,4 +50,9 @@ class NullProvider:
     def map_fields(
         self, schema: FormSchema, answers: AnswerBank, job: JobSummary
     ) -> FieldMapping:
+        raise ProviderUnavailable("no AI provider is configured")
+
+    def classify_mail(
+        self, msg: MailMessage, open_jobs: list[JobSummary]
+    ) -> MailClassification:
         raise ProviderUnavailable("no AI provider is configured")

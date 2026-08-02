@@ -222,6 +222,26 @@ class JobSummary(BaseModel):
     rules: list[str] = []
 
 
+class MailMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: str
+    sender: str | None = None
+    sender_domain: str | None = None
+    subject: str | None = None
+    body_text: str = ""
+    received_at: str | None = None
+
+
+class MailClassification(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    classification: Literal[
+        "confirmation", "rejection", "interview", "action_required", "other"
+    ]
+    confidence: float = 0.0
+
+
 class MappedField(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

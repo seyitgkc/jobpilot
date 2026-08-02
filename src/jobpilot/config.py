@@ -51,6 +51,7 @@ class NotifyConfig:
     channels: tuple[str, ...] = ("cowork", "ntfy")
     ntfy_topic: str = ""
     email_to: str = ""
+    reminder_hours: int = 6
 
 
 @dataclass(frozen=True)
