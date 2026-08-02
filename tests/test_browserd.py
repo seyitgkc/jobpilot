@@ -41,6 +41,32 @@ JOB_HTML = """<!doctype html>
 STYLE_CSS = "body { background: url('logo.png'); font-family: sans-serif; }"
 APP_JS = "document.title = document.title;"
 
+FORM_HTML = """<!doctype html>
+<html><head><title>Apply at Acme</title></head>
+<body>
+<form>
+  <fieldset><legend>Basics</legend>
+    <label for="fn">First name</label><input id="fn" name="first_name" required>
+    <label for="em">Email</label><input id="em" name="email" type="email">
+  </fieldset>
+  <label for="exp">Years of experience</label>
+  <select id="exp" name="experience">
+    <option value="">Pick one</option><option>1-3</option><option>4-6</option>
+  </select>
+  <label for="agree">I agree to the terms</label>
+  <input id="agree" name="agree" type="checkbox">
+  <label for="cv">Resume</label><input id="cv" name="resume" type="file">
+  <button type="submit">Submit application</button>
+</form>
+<script>
+document.querySelector("form").addEventListener("submit", function (event) {
+  event.preventDefault();
+  document.title = "Sent. Confirmation number: XYZ789";
+});
+</script>
+</body></html>
+"""
+
 
 def _free_port():
     with socket.socket() as sock:
@@ -63,6 +89,7 @@ def chromium():
 def site_url(tmp_path_factory):
     directory = tmp_path_factory.mktemp("site")
     (directory / "job.html").write_text(JOB_HTML)
+    (directory / "form.html").write_text(FORM_HTML)
     (directory / "style.css").write_text(STYLE_CSS)
     (directory / "app.js").write_text(APP_JS)
     (directory / "logo.png").write_bytes(PNG_1PX)
@@ -167,6 +194,66 @@ def test_tab_cap_enforced(env, site_url):
     finally:
         for job in jobs[:2]:
             client.close_tab(job.id)
+
+
+def test_form_verbs_end_to_end(env, site_url, tmp_path):
+    from jobpilot.core import formscan
+
+    client = env["client"]
+    job = _make_job(env, f"{site_url}/form.html")
+    client.open_tab(job.id, f"{site_url}/form.html")
+    try:
+        schema = formscan.scan(FORM_HTML)
+        resolution = client.resolve(job.id, schema.model_dump())
+        resolved = resolution["resolved"]
+        assert resolution["unresolved"] == []
+        for field_id in ("first_name", "email", "experience", "agree", "resume", "submit"):
+            assert field_id in resolved
+
+        resume_file = tmp_path / "resume.pdf"
+        resume_file.write_bytes(b"%PDF-1.4 fake")
+        actions = [
+            {"verb": "set", "field_id": "first_name", "value": "Jamie"},
+            {"verb": "set", "field_id": "email", "value": "jamie@example.com"},
+            {"verb": "select", "field_id": "experience", "value": "4-6"},
+            {"verb": "check", "field_id": "agree", "value": True},
+            {"verb": "upload", "field_id": "resume", "path": str(resume_file)},
+        ]
+        results = {r["field_id"]: r for r in client.apply(job.id, actions, resolved)}
+        assert all(r["ok"] for r in results.values()), results
+        assert all(r["verified"] for r in results.values()), results
+
+        unmapped = client.apply(
+            job.id, [{"verb": "set", "field_id": "ghost", "value": "x"}], resolved
+        )
+        assert not unmapped[0]["ok"]
+        assert "selector map" in unmapped[0]["error"]
+
+        checks = client.validate(
+            job.id,
+            [
+                {"field_id": "first_name"},
+                {"field_id": "experience", "options": ["1-3", "4-6"]},
+            ],
+            resolved,
+        )
+        assert checks["first_name"]["matches"]
+        assert checks["experience"]["matches"]
+
+        submit = client.apply(
+            job.id, [{"verb": "click_mapped", "field_id": "submit"}], resolved
+        )
+        assert submit[0]["ok"]
+        state = client.page_state(job.id)
+        assert "XYZ789" in state["title"]
+
+        # The form page has no experience dropdown after renavigation to the
+        # posting page; validation must report the drift.
+        client.open_tab(job.id, f"{site_url}/job.html")
+        drift = client.validate(job.id, [{"field_id": "experience"}], resolved)
+        assert not drift["experience"]["present"]
+    finally:
+        client.close_tab(job.id)
 
 
 def test_capture_end_to_end(env, site_url):

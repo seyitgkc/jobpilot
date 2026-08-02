@@ -14,7 +14,15 @@ import anthropic
 
 from ..config import AIConfig
 from .base import ProviderCallFailed, ProviderUnavailable
-from .schemas import FactBase, TailorConstraints, TailorPlan
+from .schemas import (
+    AnswerBank,
+    FactBase,
+    FieldMapping,
+    FormSchema,
+    JobSummary,
+    TailorConstraints,
+    TailorPlan,
+)
 
 _TAILOR_SYSTEM = """\
 You tailor a resume against a job posting. You select and rephrase content \
@@ -73,6 +81,47 @@ def _user_message(
     return "\n".join(parts)
 
 
+_MAP_SYSTEM = """\
+You map application form fields to answers from the owner's answer bank. You \
+never invent an answer.
+
+For each form field, either supply a value or mark it needs_owner:
+
+- Use an answer bank entry when the field asks the same question, even if \
+worded differently. Fit the value to the field: match a dropdown option \
+exactly as listed in options; booleans for checkboxes.
+- Basic identity fields (name, email, phone, links, location) come from the \
+entries provided with source profile.
+- The resume upload field gets source resume_file and no value.
+- Cover letter or free-writing fields: only fill from a matching banked \
+entry; otherwise needs_owner.
+- Personal, subjective, demographic, or legal-declaration questions with no \
+banked answer are always needs_owner, with a short reason. When you can \
+suggest an answer for the owner to confirm, put it in proposed; never in \
+value.
+- Set confidence between 0 and 1 for every filled field. When unsure, prefer \
+needs_owner over guessing.
+- Include every field from the schema exactly once.
+- Follow every owner rule provided."""
+
+
+def _map_message(schema: FormSchema, answers: AnswerBank, job: JobSummary) -> str:
+    parts = [
+        "Job:",
+        job.model_dump_json(exclude={"rules"}),
+        "",
+        "Form schema (JSON):",
+        schema.model_dump_json(),
+        "",
+        "Answer bank (JSON):",
+        answers.model_dump_json(),
+    ]
+    if job.rules:
+        parts += ["", "Owner rules, follow all of them:"]
+        parts += [f"- {rule}" for rule in job.rules]
+    return "\n".join(parts)
+
+
 class AnthropicProvider:
     def __init__(self, config: AIConfig):
         self.config = config
@@ -82,9 +131,7 @@ class AnthropicProvider:
             raise ProviderUnavailable("ANTHROPIC_API_KEY is not set")
         return anthropic.Anthropic()
 
-    def tailor(
-        self, facts: FactBase, job_md: str, constraints: TailorConstraints
-    ) -> TailorPlan:
+    def _parse_call(self, call_name: str, system: str, user: str, output_format):
         client = self._client()
         kwargs: dict = {}
         if self.config.temperature is not None:
@@ -93,28 +140,37 @@ class AnthropicProvider:
             response = client.messages.parse(
                 model=self.config.model,
                 max_tokens=self.config.max_tokens,
-                system=_TAILOR_SYSTEM,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": _user_message(facts, job_md, constraints),
-                    }
-                ],
-                output_format=TailorPlan,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                output_format=output_format,
                 **kwargs,
             )
         except anthropic.APIStatusError as error:
             raise ProviderCallFailed(
-                f"tailor call failed: {error.status_code} {error.message}"
+                f"{call_name} call failed: {error.status_code} {error.message}"
             ) from error
         except anthropic.APIConnectionError as error:
-            raise ProviderCallFailed(f"tailor call failed: {error}") from error
+            raise ProviderCallFailed(f"{call_name} call failed: {error}") from error
         if response.stop_reason == "refusal":
-            raise ProviderCallFailed("tailor call was refused by the model")
+            raise ProviderCallFailed(f"{call_name} call was refused by the model")
         if response.stop_reason == "max_tokens":
             raise ProviderCallFailed(
-                "tailor call hit max_tokens before completing; raise ai.max_tokens"
+                f"{call_name} call hit max_tokens before completing; raise ai.max_tokens"
             )
         if response.parsed_output is None:
-            raise ProviderCallFailed("tailor call returned no parsable plan")
+            raise ProviderCallFailed(f"{call_name} call returned no parsable output")
         return response.parsed_output
+
+    def tailor(
+        self, facts: FactBase, job_md: str, constraints: TailorConstraints
+    ) -> TailorPlan:
+        return self._parse_call(
+            "tailor", _TAILOR_SYSTEM, _user_message(facts, job_md, constraints), TailorPlan
+        )
+
+    def map_fields(
+        self, schema: FormSchema, answers: AnswerBank, job: JobSummary
+    ) -> FieldMapping:
+        return self._parse_call(
+            "map_fields", _MAP_SYSTEM, _map_message(schema, answers, job), FieldMapping
+        )

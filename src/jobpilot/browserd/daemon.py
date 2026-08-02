@@ -15,8 +15,8 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from ..config import Config, DataPaths
 from ..db import open_db
-from ..core import repo
-from . import archive
+from ..core import events, repo
+from . import archive, verbs
 
 
 class TabCapReached(Exception):
@@ -164,6 +164,40 @@ class BrowserDaemon:
             return await page.pdf(format="A4", print_background=True)
         finally:
             await browser.close()
+
+    async def resolve(self, job_id: int, form_schema: dict) -> dict:
+        page = self._page(job_id)
+        result = await verbs.resolve_schema(page, form_schema)
+        events.append(
+            self._conn, actor="browserd", kind="selectors_resolved", job_id=job_id,
+            payload={
+                "resolved": len(result["resolved"]),
+                "unresolved": result["unresolved"],
+            },
+        )
+        self._conn.commit()
+        return result
+
+    async def apply(self, job_id: int, actions: list[dict], selector_map: dict) -> list[dict]:
+        page = self._page(job_id)
+        results = await verbs.apply_actions(page, actions, selector_map)
+        events.append(
+            self._conn, actor="browserd", kind="verbs_applied", job_id=job_id,
+            payload={
+                "actions": len(results),
+                "failed": [r["field_id"] for r in results if not r["ok"]],
+            },
+        )
+        self._conn.commit()
+        return results
+
+    async def validate(self, job_id: int, fields: list[dict], selector_map: dict) -> dict:
+        page = self._page(job_id)
+        return await verbs.validate_fields(page, fields, selector_map)
+
+    async def page_state(self, job_id: int) -> dict:
+        page = self._page(job_id)
+        return {"url": page.url, "title": await page.title()}
 
     async def close_tab(self, job_id: int) -> None:
         page = self._page(job_id)

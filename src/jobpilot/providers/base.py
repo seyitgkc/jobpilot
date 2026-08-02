@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from .schemas import FactBase, TailorConstraints, TailorPlan
+from .schemas import (
+    AnswerBank,
+    FactBase,
+    FieldMapping,
+    FormSchema,
+    JobSummary,
+    TailorConstraints,
+    TailorPlan,
+)
 
 
 class ProviderUnavailable(Exception):
@@ -22,9 +30,18 @@ class AIProvider(Protocol):
         self, facts: FactBase, job_md: str, constraints: TailorConstraints
     ) -> TailorPlan: ...
 
+    def map_fields(
+        self, schema: FormSchema, answers: AnswerBank, job: JobSummary
+    ) -> FieldMapping: ...
+
 
 class NullProvider:
     def tailor(
         self, facts: FactBase, job_md: str, constraints: TailorConstraints
     ) -> TailorPlan:
+        raise ProviderUnavailable("no AI provider is configured")
+
+    def map_fields(
+        self, schema: FormSchema, answers: AnswerBank, job: JobSummary
+    ) -> FieldMapping:
         raise ProviderUnavailable("no AI provider is configured")

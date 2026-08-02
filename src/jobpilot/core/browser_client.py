@@ -59,6 +59,28 @@ class BrowserClient:
         params = {"selector": selector} if selector else {}
         return self._request("GET", f"/tabs/{job_id}/screenshot", params=params).content
 
+    def resolve(self, job_id: int, form_schema: dict) -> dict:
+        return self._request(
+            "POST", f"/tabs/{job_id}/resolve", json={"form_schema": form_schema}
+        ).json()
+
+    def apply(self, job_id: int, actions: list[dict], selector_map: dict) -> list[dict]:
+        return self._request(
+            "POST",
+            f"/tabs/{job_id}/apply",
+            json={"actions": actions, "selector_map": selector_map},
+        ).json()["results"]
+
+    def validate(self, job_id: int, fields: list[dict], selector_map: dict) -> dict:
+        return self._request(
+            "POST",
+            f"/tabs/{job_id}/validate",
+            json={"fields": fields, "selector_map": selector_map},
+        ).json()
+
+    def page_state(self, job_id: int) -> dict:
+        return self._request("GET", f"/tabs/{job_id}/page").json()
+
     def render_pdf(self, html: str) -> bytes:
         return self._request("POST", "/render/pdf", json={"html": html}).content
 

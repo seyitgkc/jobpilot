@@ -10,7 +10,7 @@ import sqlite3
 
 from ..util import utcnow
 from . import events
-from .models import Application, Artifact, Job
+from .models import Application, Artifact, FieldFill, Job
 
 
 class NotFound(Exception):
@@ -244,6 +244,98 @@ def update_application_artifacts(
                 payload=updates,
             )
     return get_application(conn, job_id)
+
+
+def update_application_fill(
+    conn: sqlite3.Connection,
+    job_id: int,
+    actor: str,
+    *,
+    selector_map: str | None = None,
+    method: str | None = None,
+    filled_at: str | None = None,
+) -> Application:
+    get_or_create_application(conn, job_id)
+    updates: dict[str, str] = {}
+    if selector_map is not None:
+        updates["selector_map"] = selector_map
+    if method is not None:
+        updates["method"] = method
+    if filled_at is not None:
+        updates["filled_at"] = filled_at
+    if updates:
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        with conn:
+            conn.execute(
+                f"UPDATE application SET {assignments} WHERE job_id = ?",
+                (*updates.values(), job_id),
+            )
+            events.append(
+                conn, actor=actor, kind="application_fill_updated", job_id=job_id,
+                payload={"method": method, "filled_at": filled_at},
+            )
+    return get_application(conn, job_id)
+
+
+def mark_submitted(
+    conn: sqlite3.Connection,
+    job_id: int,
+    actor: str,
+    *,
+    submitted_by: str,
+    confirmation_ref: str | None = None,
+) -> Application:
+    get_or_create_application(conn, job_id)
+    with conn:
+        conn.execute(
+            "UPDATE application SET submitted_at = ?, submitted_by = ?,"
+            " confirmation_ref = ? WHERE job_id = ?",
+            (utcnow(), submitted_by, confirmation_ref, job_id),
+        )
+        events.append(
+            conn, actor=actor, kind="application_submitted", job_id=job_id,
+            payload={"submitted_by": submitted_by, "confirmation_ref": confirmation_ref},
+        )
+    return get_application(conn, job_id)
+
+
+def add_field_fill(
+    conn: sqlite3.Connection,
+    application_id: int,
+    field_id: str,
+    *,
+    field_label: str | None,
+    field_type: str | None,
+    value_redacted: str | None,
+    source: str | None,
+) -> int:
+    cursor = conn.execute(
+        "INSERT INTO field_fill(application_id, field_id, field_label, field_type,"
+        " value_redacted, source, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+        (application_id, field_id, field_label, field_type, value_redacted, source),
+    )
+    conn.commit()
+    return cursor.lastrowid
+
+
+def set_field_fill_status(
+    conn: sqlite3.Connection, field_fill_id: int, status: str
+) -> None:
+    if status not in ("pending", "applied", "verified", "failed"):
+        raise ValueError(f"unknown field_fill status {status!r}")
+    conn.execute(
+        "UPDATE field_fill SET status = ?, applied_at = ? WHERE id = ?",
+        (status, utcnow() if status != "pending" else None, field_fill_id),
+    )
+    conn.commit()
+
+
+def list_field_fills(conn: sqlite3.Connection, application_id: int) -> list[FieldFill]:
+    rows = conn.execute(
+        "SELECT * FROM field_fill WHERE application_id = ? ORDER BY id",
+        (application_id,),
+    ).fetchall()
+    return [FieldFill.from_row(row) for row in rows]
 
 
 def get_application(conn: sqlite3.Connection, job_id: int) -> Application | None:

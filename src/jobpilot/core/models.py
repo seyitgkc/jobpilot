@@ -102,6 +102,23 @@ class Rule:
 
 
 @dataclass(frozen=True)
+class FieldFill:
+    id: int
+    application_id: int
+    field_id: str
+    field_label: str | None
+    field_type: str | None
+    value_redacted: str | None
+    source: str | None
+    status: str
+    applied_at: str | None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "FieldFill":
+        return cls(**_cols(row))
+
+
+@dataclass(frozen=True)
 class Blocker:
     id: int
     job_id: int

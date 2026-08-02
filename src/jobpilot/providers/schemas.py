@@ -138,3 +138,109 @@ class TailorPlan(BaseModel):
     skills: list[RenderedFact] = []
     experience: list[PlannedExperience] = []
     projects: list[RenderedFact] = []
+
+
+FIELD_TYPES = (
+    "text",
+    "textarea",
+    "select",
+    "multiselect",
+    "checkbox",
+    "radio",
+    "file",
+    "email",
+    "phone",
+    "url",
+    "number",
+    "date",
+)
+
+
+class FormField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field_id: str
+    label: str | None = None
+    type: Literal[
+        "text",
+        "textarea",
+        "select",
+        "multiselect",
+        "checkbox",
+        "radio",
+        "file",
+        "email",
+        "phone",
+        "url",
+        "number",
+        "date",
+    ] = "text"
+    options: list[str] = []
+    maxlen: int | None = None
+    required: bool = False
+    section: str | None = None
+
+
+class FormSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fields: list[FormField] = []
+    submit_button: FormField | None = None
+    pagination: bool = False
+
+    def by_id(self, field_id: str) -> FormField | None:
+        for field in self.fields:
+            if field.field_id == field_id:
+                return field
+        return None
+
+
+class AnswerEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str
+    answer: str
+    answer_type: Literal["text", "select", "bool", "number", "date"] = "text"
+    sensitive: bool = False
+    scope: str = "global"
+
+
+class AnswerBank(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[AnswerEntry] = []
+
+
+class JobSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    company: str | None = None
+    title: str | None = None
+    board: str | None = None
+    url: str | None = None
+    rules: list[str] = []
+
+
+class MappedField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field_id: str
+    value: str | bool | list[str] | None = None
+    source: Literal["answer_bank", "profile", "derived", "resume_file"] | None = None
+    confidence: float = 0.0
+    needs_owner: bool = False
+    reason: str | None = None
+    proposed: str | None = None
+
+
+class FieldMapping(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fields: list[MappedField] = []
+
+    def by_id(self, field_id: str) -> MappedField | None:
+        for field in self.fields:
+            if field.field_id == field_id:
+                return field
+        return None

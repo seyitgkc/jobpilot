@@ -21,6 +21,20 @@ class RenderPdfRequest(BaseModel):
     html: str
 
 
+class ResolveRequest(BaseModel):
+    form_schema: dict
+
+
+class ApplyRequest(BaseModel):
+    actions: list[dict]
+    selector_map: dict
+
+
+class ValidateRequest(BaseModel):
+    fields: list[dict]
+    selector_map: dict
+
+
 def create_app(config: Config, paths: DataPaths, headless: bool = False) -> FastAPI:
     daemon = BrowserDaemon(config, paths, headless=headless)
 
@@ -84,6 +98,35 @@ def create_app(config: Config, paths: DataPaths, headless: bool = False) -> Fast
         except Exception as error:
             raise translate(error) from error
         return Response(content=image, media_type="image/png")
+
+    @app.post("/tabs/{job_id}/resolve")
+    async def resolve(job_id: int, request: ResolveRequest) -> dict:
+        try:
+            return await daemon.resolve(job_id, request.form_schema)
+        except Exception as error:
+            raise translate(error) from error
+
+    @app.post("/tabs/{job_id}/apply")
+    async def apply(job_id: int, request: ApplyRequest) -> dict:
+        try:
+            results = await daemon.apply(job_id, request.actions, request.selector_map)
+        except Exception as error:
+            raise translate(error) from error
+        return {"results": results}
+
+    @app.post("/tabs/{job_id}/validate")
+    async def validate(job_id: int, request: ValidateRequest) -> dict:
+        try:
+            return await daemon.validate(job_id, request.fields, request.selector_map)
+        except Exception as error:
+            raise translate(error) from error
+
+    @app.get("/tabs/{job_id}/page")
+    async def page_state(job_id: int) -> dict:
+        try:
+            return await daemon.page_state(job_id)
+        except Exception as error:
+            raise translate(error) from error
 
     @app.post("/render/pdf")
     async def render_pdf(request: RenderPdfRequest) -> Response:
