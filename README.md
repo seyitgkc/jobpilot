@@ -163,6 +163,19 @@ validates mechanically, so chat-driven runs need no API key. The skill
 carries the judgment layer: pipeline order, the blocker contract, banking
 policy, and context hygiene.
 
+Cowork keeps its own connector and skill lists, separate from the two
+registrations above, and installs both at once from a plugin package:
+
+```
+make plugin
+```
+
+The package lands at `dist/jobpilot.plugin`; drop it into a Cowork
+conversation and accept the install. It bundles the skill together with the
+server config, so jobpilot appears in Cowork's skills and connectors in one
+step. The package embeds this checkout's absolute paths; rebuild it if the
+repo moves.
+
 ## Checks
 
 ```
