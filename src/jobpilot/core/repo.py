@@ -6,8 +6,10 @@ core.state.transition().
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 
+from ..config import DataPaths
 from ..util import utcnow
 from . import events
 from .models import Application, Artifact, FieldFill, Job
@@ -95,6 +97,54 @@ def set_job_gates(
             conn, actor=actor, kind="gates_changed", job_id=job_id, payload=updates
         )
     return get_job(conn, job_id)
+
+
+def delete_job(conn: sqlite3.Connection, paths: DataPaths, job_id: int, actor: str) -> None:
+    """Remove a job and everything it owns: rows, events, and files. Shared
+    stores survive: banked answers lose their blocker reference, and mail
+    returns to the unassigned queue instead of being deleted, because the
+    mail archive belongs to the mailbox, never to one job."""
+    job = get_job(conn, job_id)
+    with conn:
+        blocker_ids = [
+            row[0]
+            for row in conn.execute("SELECT id FROM blocker WHERE job_id = ?", (job_id,))
+        ]
+        if blocker_ids:
+            placeholders = ", ".join("?" for _ in blocker_ids)
+            conn.execute(
+                f"UPDATE answer_bank SET created_from_blocker_id = NULL"
+                f" WHERE created_from_blocker_id IN ({placeholders})",
+                blocker_ids,
+            )
+        conn.execute(
+            "DELETE FROM field_fill WHERE application_id IN"
+            " (SELECT id FROM application WHERE job_id = ?)",
+            (job_id,),
+        )
+        conn.execute("DELETE FROM application WHERE job_id = ?", (job_id,))
+        conn.execute("DELETE FROM blocker WHERE job_id = ?", (job_id,))
+        conn.execute("DELETE FROM job_context WHERE job_id = ?", (job_id,))
+        conn.execute(
+            "UPDATE mail SET job_id = NULL, match_score = NULL, match_method = NULL,"
+            " status = 'needs_assignment' WHERE job_id = ?",
+            (job_id,),
+        )
+        conn.execute("DELETE FROM event WHERE job_id = ?", (job_id,))
+        conn.execute("DELETE FROM artifact WHERE job_id = ?", (job_id,))
+        conn.execute("DELETE FROM job WHERE id = ?", (job_id,))
+        events.append(
+            conn,
+            actor=actor,
+            kind="job_deleted",
+            payload={
+                "job_id": job_id,
+                "company": job.company,
+                "title": job.title,
+                "url": job.url,
+            },
+        )
+    shutil.rmtree(paths.job_dir(job_id), ignore_errors=True)
 
 
 def update_job_capture(

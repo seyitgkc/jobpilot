@@ -163,13 +163,17 @@ def create_app(
         conn = db(request)
         job = load_job(conn, job_id)
         rows = context.active(conn, job_id)
+        artifacts_list = repo.list_artifacts(conn, job_id)
+        filled_shots = [a for a in artifacts_list if a.kind == "filled_screenshot"]
         return render(
             request,
             "job_detail.html",
             job=job,
             mail_rows=mail.list_for_job(conn, job_id),
             application=repo.get_application(conn, job_id),
-            artifacts=repo.list_artifacts(conn, job_id),
+            artifacts=artifacts_list,
+            filled_shot=filled_shots[-1] if filled_shots else None,
+            submit_approvable=job.status in ("filling", "filled") or bool(filled_shots),
             open_blockers=blockers.list_open(conn, job_id),
             summary_rows=[row for row in rows if row.kind == "summary"],
             context_rows=[row for row in rows if row.kind != "summary"],
@@ -177,6 +181,17 @@ def create_app(
             has_glance=tailor.glance(conn, paths, config, job_id) is not None,
             abandonable=state.is_legal(job.status, "abandoned"),
         )
+
+    @app.post("/jobs/{job_id}/delete")
+    def delete_job_route(request: Request, job_id: int):
+        conn = db(request)
+        load_job(conn, job_id)
+        try:
+            browser_client_factory().close_tab(job_id)
+        except Exception:
+            pass
+        repo.delete_job(conn, paths, job_id, "owner")
+        return RedirectResponse("/", status_code=303)
 
     @app.get("/jobs/{job_id}/artifacts/{artifact_id}")
     def artifact_file(request: Request, job_id: int, artifact_id: int):

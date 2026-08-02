@@ -10,7 +10,10 @@
 
 <div class="card">
   {% if data.pdf_artifact %}
-  <p><a href="/jobs/{{ job.id }}/artifacts/{{ data.pdf_artifact.id }}"><b>Open the tailored PDF</b></a></p>
+  <object class="pdf-frame" data="/jobs/{{ job.id }}/artifacts/{{ data.pdf_artifact.id }}" type="application/pdf">
+    <p>The PDF preview did not load in this browser.</p>
+  </object>
+  <p class="small"><a href="/jobs/{{ job.id }}/artifacts/{{ data.pdf_artifact.id }}">Open the tailored PDF in its own tab</a></p>
   {% else %}
   <p class="muted">No PDF was built for this plan; the LaTeX source is on the job page.</p>
   {% endif %}

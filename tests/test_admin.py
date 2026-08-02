@@ -295,6 +295,37 @@ def test_lost_tab_replay_from_dashboard(web, paths, fill_client):
     assert "tab_replayed" in kinds
 
 
+def test_approvals_show_what_is_approved(web, paths):
+    client, conn = web
+    bare = seed_job(conn, paths)
+    page = client.get(f"/jobs/{bare.id}")
+    assert "No tailored resume to review yet" in page.text
+    assert f'action="/jobs/{bare.id}/approve-resume"' not in page.text
+    assert "Submission approval opens once the form is filled" in page.text
+    assert f'action="/jobs/{bare.id}/approve-submit"' not in page.text
+
+    tailored = seed_job(conn, paths, tailored=True)
+    page = client.get(f"/jobs/{tailored.id}")
+    assert "Review and approve the resume" in page.text
+
+    glance = client.get(f"/jobs/{tailored.id}/glance")
+    assert "pdf-frame" in glance.text
+
+
+def test_delete_job_from_panel(web, paths):
+    client, conn = web
+    job = seed_job(conn, paths, tailored=True)
+    job_dir = paths.job_dir(job.id)
+    assert job_dir.exists()
+
+    response = client.post(f"/jobs/{job.id}/delete")
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
+    assert client.get(f"/jobs/{job.id}").status_code == 404
+    assert not job_dir.exists()
+    assert client.get("/").status_code == 200
+
+
 def test_capture_from_dashboard(web, paths, fill_client):
     client, conn = web
     page = client.get("/")

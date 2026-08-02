@@ -20,18 +20,27 @@
   <div class="card">
     <h2>Approvals</h2>
     {% if application and application.resume_approved_at %}
-      <p>Resume approved {{ application.resume_approved_at }}</p>
+      <p>Resume approved {{ application.resume_approved_at }}
+        {% if has_glance %}<a class="small" href="/jobs/{{ job.id }}/glance">review</a>{% endif %}</p>
+    {% elif has_glance %}
+      <p><a href="/jobs/{{ job.id }}/glance"><b>Review and approve the resume</b></a></p>
+      <p class="muted small">The review shows the PDF, every tailored line
+      next to its master line, and what was dropped.</p>
     {% else %}
-      <form class="inline" method="post" action="/jobs/{{ job.id }}/approve-resume">
-        <button class="primary">Approve resume</button>
-      </form>
+      <p class="muted">No tailored resume to review yet.</p>
     {% endif %}
     {% if application and application.submit_approved_at %}
       <p>Submission approved {{ application.submit_approved_at }}</p>
-    {% else %}
+    {% elif submit_approvable %}
+      {% if filled_shot %}
+      <p><a href="/jobs/{{ job.id }}/artifacts/{{ filled_shot.id }}"><b>View the filled form</b></a>
+        <span class="muted small">this page is what gets submitted</span></p>
+      {% endif %}
       <form class="inline" method="post" action="/jobs/{{ job.id }}/approve-submit">
         <button>Approve submission</button>
       </form>
+    {% else %}
+      <p class="muted">Submission approval opens once the form is filled.</p>
     {% endif %}
   </div>
 
@@ -55,11 +64,15 @@
       <button>Save</button>
     </form>
     {% if abandonable %}
-    <form method="post" action="/jobs/{{ job.id }}/abandon"
-          onsubmit="return confirm('Abandon this job?')">
+    <form class="inline" method="post" action="/jobs/{{ job.id }}/abandon"
+          onsubmit="return confirm('Abandon this job? The record and its history stay.')">
       <button class="danger">Abandon job</button>
     </form>
     {% endif %}
+    <form class="inline" method="post" action="/jobs/{{ job.id }}/delete"
+          onsubmit="return confirm('Delete this job with all of its records, artifacts, and files? There is no undo. Assigned mail returns to the unassigned queue.')">
+      <button class="danger">Delete job</button>
+    </form>
   </div>
 </div>
 

@@ -104,6 +104,16 @@ class JobpilotApi:
     def job_abandon(self, job_id: int) -> dict:
         return _plain(resolve.abandon_job(self.conn, job_id, "owner"))
 
+    def job_delete(self, job_id: int) -> dict:
+        """Remove the job with all of its records, artifacts, and files.
+        Assigned mail returns to the unassigned queue. No undo."""
+        try:
+            self.client_factory().close_tab(job_id)
+        except Exception:
+            pass
+        repo.delete_job(self.conn, self.paths, job_id, "owner")
+        return {"deleted": job_id}
+
     def job_mark_manual_submitted(self, job_id: int, note: str = "") -> dict:
         job = repo.get_job(self.conn, job_id)
         if job.status != "manual_required":
@@ -379,7 +389,8 @@ def create_server(
     mcp = MCPServer("jobpilot")
     for name in (
         "job_capture", "job_get", "job_list", "job_approve_resume",
-        "job_approve_submit", "job_abandon", "job_mark_manual_submitted",
+        "job_approve_submit", "job_abandon", "job_delete",
+        "job_mark_manual_submitted",
         "job_tailor_context", "job_tailor_submit", "job_glance",
         "form_extract", "form_map_context", "form_fill", "job_submit",
         "blocker_list", "blocker_get", "blocker_answer", "blocker_execute",
