@@ -12,7 +12,7 @@ import re
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 
-from . import boards
+from . import boards, injection
 
 _STRIP_TAGS = (
     "nav",
@@ -50,5 +50,6 @@ def posting_markdown(html: str, source_url: str, board: str = "other") -> str:
     for tag in root.find_all(_STRIP_TAGS):
         tag.decompose()
     markdown = markdownify(str(root), heading_style="ATX")
+    markdown = injection.strip_invisible(markdown)
     markdown = re.sub(r"\n{3,}", "\n\n", markdown).strip()
     return f"<!-- source: {source_url} -->\n\n{markdown}\n"

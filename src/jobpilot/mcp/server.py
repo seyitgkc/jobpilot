@@ -34,6 +34,7 @@ from ..core import (
 from ..core.browser_client import BrowserClient
 from ..core import capture as capture_module
 from ..core import mail as mail_module
+from ..core.injection import UNTRUSTED_NOTICE, findings, wrap_untrusted
 from ..providers.schemas import FieldMapping, TailorPlan
 from ..util import from_json
 
@@ -135,11 +136,17 @@ class JobpilotApi:
     # Tailoring: the session authors the plan.
 
     def job_tailor_context(self, job_id: int, notes: str = "") -> dict:
-        return _plain(
+        payload = _plain(
             tailor.tailor_context(
                 self.conn, self.paths, self.config, job_id, notes=notes or None
             )
         )
+        suspicious = findings(payload["posting_md"])
+        payload["posting_md"] = wrap_untrusted(payload["posting_md"], "job posting")
+        payload["untrusted_notice"] = UNTRUSTED_NOTICE
+        if suspicious:
+            payload["injection_warnings"] = suspicious
+        return payload
 
     def job_tailor_submit(self, job_id: int, plan: dict) -> dict:
         result = tailor.apply_plan(
@@ -176,7 +183,9 @@ class JobpilotApi:
         )
 
     def form_map_context(self, job_id: int) -> dict:
-        return _plain(fill.fill_context(self.conn, self.paths, self.config, job_id))
+        payload = _plain(fill.fill_context(self.conn, self.paths, self.config, job_id))
+        payload["untrusted_notice"] = UNTRUSTED_NOTICE
+        return payload
 
     def form_fill(self, job_id: int, mapping: dict) -> dict:
         result = fill.apply_mapping(
@@ -351,12 +360,19 @@ class JobpilotApi:
 
     def mail_classify_context(self, mail_id: int) -> dict:
         mail = mail_module.get_mail(self.conn, mail_id)
-        return _plain(
+        payload = _plain(
             {
                 "message": mail_module.to_message(self.paths, mail),
                 "open_jobs": mail_module.open_job_summaries(self.conn),
             }
         )
+        body = payload["message"].get("body_text") or ""
+        suspicious = findings(body)
+        payload["message"]["body_text"] = wrap_untrusted(body, "email message")
+        payload["untrusted_notice"] = UNTRUSTED_NOTICE
+        if suspicious:
+            payload["injection_warnings"] = suspicious
+        return payload
 
     def mail_classify(self, mail_id: int, classification: str) -> dict:
         return _plain(

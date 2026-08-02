@@ -25,7 +25,7 @@ from ..config import Config, DataPaths
 from ..providers.base import ProviderCallFailed, ProviderUnavailable
 from ..providers.schemas import JobSummary, MailClassification, MailMessage
 from ..util import utcnow
-from . import blockers, events, repo, settings, state
+from . import blockers, events, injection, repo, settings, state
 
 ATS_DOMAINS = (
     "greenhouse.io",
@@ -111,8 +111,8 @@ def _extract_body(message) -> str:
         return ""
     content = part.get_content()
     if part.get_content_type() == "text/html":
-        return BeautifulSoup(content, "html.parser").get_text(" ", strip=True)
-    return content
+        content = BeautifulSoup(content, "html.parser").get_text(" ", strip=True)
+    return injection.strip_invisible(content)
 
 
 def _parse(raw: bytes) -> dict:
