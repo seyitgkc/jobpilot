@@ -16,6 +16,7 @@ from mcp.server.mcpserver import Image
 
 from ..config import Config, DataPaths, load_config
 from ..db import open_db
+from ..core import agenda as agenda_module
 from ..core import answers as answers_module
 from ..core import (
     blockers,
@@ -57,6 +58,12 @@ class JobpilotApi:
         self.paths = paths
         self.conn = conn
         self.client_factory = client_factory
+
+    def agenda(self) -> dict:
+        """Everything waiting across the pipeline: jobs to tailor, reviews
+        and approvals pending, answered blockers to execute, unassigned
+        mail, lost tabs. The natural first call of any working session."""
+        return agenda_module.agenda(self.conn)
 
     # Jobs
 
@@ -388,6 +395,7 @@ def create_server(
 
     mcp = MCPServer("jobpilot")
     for name in (
+        "agenda",
         "job_capture", "job_get", "job_list", "job_approve_resume",
         "job_approve_submit", "job_abandon", "job_delete",
         "job_mark_manual_submitted",

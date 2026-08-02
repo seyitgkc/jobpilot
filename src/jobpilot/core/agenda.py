@@ -1,0 +1,73 @@
+"""What waits, across the whole pipeline.
+
+The database is the queue: a job's status plus the gate stamps say exactly
+what should happen to it next. This module reads that into one structure so
+any drainer (a chat session, the worker, the owner scanning the panel) can
+pick up work without re-deriving the rules.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+
+from . import blockers, mail, repo, state
+from .models import Job
+
+
+def _summary(job: Job) -> dict:
+    return {
+        "id": job.id,
+        "company": job.company,
+        "title": job.title,
+        "status": job.status,
+        "url": job.canonical_url or job.url,
+    }
+
+
+def agenda(conn: sqlite3.Connection) -> dict:
+    jobs = repo.list_jobs(conn)
+    blocked = blockers.open_counts(conn)
+
+    to_tailor = []
+    awaiting_resume_review = []
+    ready_to_fill = []
+    awaiting_submit_approval = []
+    ready_to_submit = []
+
+    for job in jobs:
+        if job.id in blocked:
+            continue
+        application = repo.get_application(conn, job.id)
+        if job.status == "captured":
+            to_tailor.append(job)
+        elif job.status == "tailored":
+            gate_on = state.effective_gate(conn, job, "resume_glance")
+            approved = application is not None and application.resume_approved_at
+            if gate_on and not approved:
+                awaiting_resume_review.append(job)
+            else:
+                ready_to_fill.append(job)
+        elif job.status == "filled":
+            gate_on = state.effective_gate(conn, job, "submit_approval")
+            approved = application is not None and application.submit_approved_at
+            if gate_on and not approved:
+                awaiting_submit_approval.append(job)
+            else:
+                ready_to_submit.append(job)
+
+    open_blockers = blockers.list_open(conn)
+    return {
+        "to_tailor": [_summary(job) for job in to_tailor],
+        "awaiting_resume_review": [_summary(job) for job in awaiting_resume_review],
+        "ready_to_fill": [_summary(job) for job in ready_to_fill],
+        "awaiting_submit_approval": [_summary(job) for job in awaiting_submit_approval],
+        "ready_to_submit": [_summary(job) for job in ready_to_submit],
+        "open_blockers": [
+            {"id": b.id, "job_id": b.job_id, "kind": b.kind, "status": b.status,
+             "question": b.question}
+            for b in open_blockers
+        ],
+        "answered_blockers": [b.id for b in open_blockers if b.status == "answered"],
+        "unassigned_mail": len(mail.list_unassigned(conn)),
+        "lost_tabs": [_summary(job) for job in repo.jobs_with_tab_state(conn, "lost")],
+    }
