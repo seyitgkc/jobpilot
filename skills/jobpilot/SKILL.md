@@ -42,6 +42,30 @@ did not observe in a tool result.
    when the owner has said to submit this application. The default posture
    is filled and parked.
 
+## Standing watch
+
+When the owner asks you to watch, stay on duty, or pick things up as they
+add them, run this loop and keep running it until they stop you:
+
+1. Call `agenda_wait` with the `last_event_id` from the previous agenda
+   (0 the first time). It blocks until there is work or it times out.
+2. On `work: true`, do everything in the actionable buckets, in this order:
+   answered blockers first (execute them), then `to_tailor` (author and
+   submit each plan), then `mail_to_classify`, then `ready_to_fill`, then
+   `lost_tabs` (replay).
+3. `ready_to_submit` means the owner already approved that submission:
+   send it, and say so. Everything else gated stays untouched.
+4. Report only what changed and what now needs the owner, in one short
+   message. Say nothing on an empty pass.
+5. Call `agenda_wait` again immediately, passing the newest
+   `last_event_id`. A timeout is not a reason to stop; loop again.
+
+The loop is how a posting captured in the panel becomes a tailored resume
+without the owner asking twice. Keep going through timeouts, quiet periods,
+and your own summaries; stop only when the owner says to stop, or when
+something needs a decision that only they can make and nothing else in the
+agenda can proceed.
+
 ## Blockers
 
 - Blockers batch. All owner questions for one form travel as one blocker

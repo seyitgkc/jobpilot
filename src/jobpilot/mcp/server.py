@@ -8,6 +8,7 @@ a core call, so a chat action and the same panel action write the same rows.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from typing import Any
 
@@ -65,6 +66,31 @@ class JobpilotApi:
         and approvals pending, answered blockers to execute, unassigned
         mail, lost tabs. The natural first call of any working session."""
         return agenda_module.agenda(self.conn)
+
+    async def agenda_wait(
+        self, after_event_id: int = 0, timeout_seconds: int = 60
+    ) -> dict:
+        """Wait for work, then return the agenda. Blocks until something the
+        session can act on appears (a posting captured in the panel, an
+        answered blocker, mail to classify) or the timeout expires.
+
+        Pass the last_event_id from the previous result to wake only on what
+        happened since. On timeout it returns work=false; call it again to
+        keep standing watch."""
+        timeout_seconds = max(5, min(int(timeout_seconds), 300))
+        deadline = asyncio.get_running_loop().time() + timeout_seconds
+        while True:
+            view = agenda_module.agenda(self.conn)
+            fresh = view["last_event_id"] > after_event_id
+            if agenda_module.has_work(view) and (fresh or not after_event_id):
+                return {"work": True, "timed_out": False, "agenda": view}
+            if asyncio.get_running_loop().time() >= deadline:
+                return {
+                    "work": False,
+                    "timed_out": True,
+                    "last_event_id": view["last_event_id"],
+                }
+            await asyncio.sleep(2)
 
     # Jobs
 
@@ -405,7 +431,7 @@ def create_server(
 
     mcp = MCPServer("jobpilot")
     for name in (
-        "agenda",
+        "agenda", "agenda_wait",
         "job_capture", "job_get", "job_list", "job_approve_resume",
         "job_approve_submit", "job_abandon", "job_delete",
         "job_mark_manual_submitted",

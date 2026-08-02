@@ -14,6 +14,28 @@ from . import blockers, mail, repo, state
 from .models import Job
 
 
+# Buckets a working session can act on by itself. The awaiting_* buckets are
+# the owner's move, so they wake nobody; they travel in the agenda for
+# reporting.
+ACTIONABLE = (
+    "to_tailor",
+    "ready_to_fill",
+    "ready_to_submit",
+    "answered_blockers",
+    "mail_to_classify",
+    "lost_tabs",
+)
+
+
+def has_work(view: dict) -> bool:
+    return any(view.get(key) for key in ACTIONABLE)
+
+
+def latest_event_id(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT MAX(id) FROM event").fetchone()
+    return row[0] or 0
+
+
 def _summary(job: Job) -> dict:
     return {
         "id": job.id,
@@ -70,6 +92,7 @@ def agenda(conn: sqlite3.Connection) -> dict:
 
     open_blockers = blockers.list_open(conn)
     return {
+        "last_event_id": latest_event_id(conn),
         "to_tailor": [_summary(job) for job in to_tailor],
         "awaiting_resume_review": [_summary(job) for job in awaiting_resume_review],
         "ready_to_fill": [_summary(job) for job in ready_to_fill],

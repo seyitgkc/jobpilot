@@ -172,6 +172,11 @@ Install the skill by linking it into the user skills directory:
 ln -s /absolute/path/to/repo/skills/jobpilot ~/.claude/skills/jobpilot
 ```
 
+A session can also stand watch: `agenda_wait` blocks until something needs
+doing and returns as soon as it does, so a posting captured in the panel is
+picked up within seconds without asking twice. Tell a session to watch and
+it loops on that call until you stop it.
+
 Every tool is a thin wrapper over the same core calls the panel makes.
 Tailoring, field mapping, and mail classification have context and submit
 pairs: the session reads the inputs, authors the output itself, and core
