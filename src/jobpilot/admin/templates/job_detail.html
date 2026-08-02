@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.id }}, jobpilot{% endblock %}
+{% block content %}
+<h1>#{{ job.id }} {{ job.title or "Unknown role" }} at {{ job.company or "unknown company" }}</h1>
+<p>
+  <span class="badge status">{{ job.status|human }}</span>
+  {% if open_blockers %}<span class="badge blocked">blocked ({{ open_blockers|length }})</span>{% endif %}
+  <span class="badge off">tab: {{ job.tab_state }}</span>
+  {% if job.workday_flag %}<span class="badge off">workday</span>{% endif %}
+  {% if job.board %}<span class="badge off">{{ job.board }}</span>{% endif %}
+  {% if job.req_id %}<span class="badge off">req {{ job.req_id }}</span>{% endif %}
+</p>
+<p class="small">
+  <a href="{{ job.canonical_url or job.url }}">Posting</a>
+  {% if has_glance %} &middot; <a href="/jobs/{{ job.id }}/glance">Resume review</a>{% endif %}
+</p>
+
+<div class="grid">
+  <div class="card">
+    <h2>Approvals</h2>
+    {% if application and application.resume_approved_at %}
+      <p>Resume approved {{ application.resume_approved_at }}</p>
+    {% else %}
+      <form class="inline" method="post" action="/jobs/{{ job.id }}/approve-resume">
+        <button class="primary">Approve resume</button>
+      </form>
+    {% endif %}
+    {% if application and application.submit_approved_at %}
+      <p>Submission approved {{ application.submit_approved_at }}</p>
+    {% else %}
+      <form class="inline" method="post" action="/jobs/{{ job.id }}/approve-submit">
+        <button>Approve submission</button>
+      </form>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Gates</h2>
+    <form method="post" action="/jobs/{{ job.id }}/gates">
+      <label>Resume review
+        <select name="resume_glance_gate">
+          {% for value in ["inherit", "on", "off"] %}
+          <option value="{{ value }}" {% if job.resume_glance_gate == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Submission
+        <select name="submit_gate">
+          {% for value in ["inherit", "on", "off"] %}
+          <option value="{{ value }}" {% if job.submit_gate == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button>Save</button>
+    </form>
+    {% if abandonable %}
+    <form method="post" action="/jobs/{{ job.id }}/abandon"
+          onsubmit="return confirm('Abandon this job?')">
+      <button class="danger">Abandon job</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if open_blockers %}
+<h2>Open blockers</h2>
+<table>
+  <tr><th>Kind</th><th>Question</th><th>Status</th><th>Raised</th></tr>
+  {% for blocker in open_blockers %}
+  <tr>
+    <td>{{ blocker.kind|human }}</td>
+    <td>{{ blocker.question or "" }}</td>
+    <td>{{ blocker.status }}</td>
+    <td class="muted small">{{ blocker.raised_at }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if summary_rows or context_rows %}
+<h2>Working notes</h2>
+<div class="card">
+  {% for row in summary_rows %}
+  <p><b>Summary:</b> {{ row.content }} <span class="muted small">({{ row.created_at }})</span></p>
+  {% endfor %}
+  <ul class="plain">
+    {% for row in context_rows %}
+    <li><span class="badge off">{{ row.kind|human }}</span> {{ row.content }}
+      <span class="muted small">{{ row.source or "" }} {{ row.created_at }}</span></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if artifacts %}
+<h2>Artifacts</h2>
+<table>
+  <tr><th>Kind</th><th>File</th><th>Created</th></tr>
+  {% for artifact in artifacts %}
+  <tr>
+    <td>{{ artifact.kind }}</td>
+    <td><a href="/jobs/{{ job.id }}/artifacts/{{ artifact.id }}">{{ artifact.path }}</a></td>
+    <td class="muted small">{{ artifact.created_at }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2>Timeline</h2>
+<table>
+  <tr><th>When</th><th>Actor</th><th>Event</th><th>Details</th></tr>
+  {% for event in timeline %}
+  <tr>
+    <td class="muted small">{{ event.ts }}</td>
+    <td>{{ event.actor }}</td>
+    <td>{{ event.kind|human }}</td>
+    <td>{% if event.payload %}<code>{{ event.payload }}</code>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

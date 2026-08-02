@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Dashboard, jobpilot{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<div class="chips">
+  <span class="chip">Jobs <b>{{ total }}</b></span>
+  <span class="chip">Open blockers <b>{{ open_blockers }}</b></span>
+  <span class="chip">Unassigned mail <b>{{ unassigned_mail }}</b></span>
+  {% for status, n in counts.items() %}
+  <span class="chip">{{ status|human }} <b>{{ n }}</b></span>
+  {% endfor %}
+</div>
+
+{% if not groups %}
+<div class="card">
+  <p>No jobs yet. Capture a posting from the terminal:</p>
+  <pre>jobpilot capture &lt;posting url&gt;</pre>
+</div>
+{% endif %}
+
+{% for group in groups %}
+<h2>{{ group.status|human }} ({{ group.jobs|length }})</h2>
+<table>
+  <tr><th>Job</th><th>Company</th><th>Title</th><th>Board</th><th>Tab</th><th>Updated</th><th></th></tr>
+  {% for job in group.jobs %}
+  <tr>
+    <td><a href="/jobs/{{ job.id }}">#{{ job.id }}</a></td>
+    <td>{{ job.company or "?" }}</td>
+    <td>{{ job.title or "?" }}</td>
+    <td>{{ job.board or "?" }}</td>
+    <td class="muted small">{{ job.tab_state }}</td>
+    <td class="muted small">{{ job.updated_at }}</td>
+    <td>
+      {% if blocked.get(job.id) %}
+      <span class="badge blocked">blocked ({{ blocked[job.id] }})</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endfor %}
+{% endblock %}

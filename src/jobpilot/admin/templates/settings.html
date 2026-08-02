@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Settings, jobpilot{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+<h2>Approval gates</h2>
+<div class="card">
+  <p class="muted small">Global defaults; each job can override them on its
+  own page. With a gate on, the matching step waits for your approval.</p>
+  <form method="post" action="/settings/gates">
+    <p>
+      <label>Resume review before filling
+        <select name="resume_glance">
+          <option value="on" {% if gates["gates.resume_glance"] == "on" %}selected{% endif %}>on</option>
+          <option value="off" {% if gates["gates.resume_glance"] == "off" %}selected{% endif %}>off</option>
+        </select>
+      </label>
+    </p>
+    <p>
+      <label>Approval before submitting
+        <select name="submit_approval">
+          <option value="on" {% if gates["gates.submit_approval"] == "on" %}selected{% endif %}>on</option>
+          <option value="off" {% if gates["gates.submit_approval"] == "off" %}selected{% endif %}>off</option>
+        </select>
+      </label>
+    </p>
+    <p>
+      <label>Automatic submission
+        <select name="auto_submit">
+          <option value="off" {% if gates["gates.auto_submit"] == "off" %}selected{% endif %}>off</option>
+          <option value="on" {% if gates["gates.auto_submit"] == "on" %}selected{% endif %}>on</option>
+        </select>
+      </label>
+    </p>
+    <button class="primary">Save gates</button>
+  </form>
+</div>
+
+<h2>Configuration</h2>
+<div class="card">
+  <p class="muted small">These values come from config.toml next to the
+  project; edit that file and restart to change them.</p>
+  <table>
+    {% for label, value in config_values %}
+    <tr><td>{{ label }}</td><td><code>{{ value }}</code></td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

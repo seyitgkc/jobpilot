@@ -336,3 +336,34 @@ def _finish_partial(
 def load_plan_artifact(paths: DataPaths, artifact: Artifact) -> TailorPlan:
     data = from_json(paths.absolute(artifact.path).read_text())
     return TailorPlan.model_validate(data)
+
+
+def glance(
+    conn: sqlite3.Connection, paths: DataPaths, config: Config, job_id: int
+) -> dict | None:
+    """Everything the resume review needs: current plan, master-versus-plan
+    diff, a fresh validator run, and the artifact rows. Returns None when the
+    job has no tailored plan yet. Chat and panel both present this."""
+    application = repo.get_application(conn, job_id)
+    if application is None or application.tailor_plan_artifact_id is None:
+        return None
+    plan_artifact = repo.get_artifact(conn, application.tailor_plan_artifact_id)
+    facts = resume.load_facts(paths)
+    plan = load_plan_artifact(paths, plan_artifact)
+    report = honesty.validate_plan(
+        plan, facts, rules.active_rules(conn, "tailoring"),
+        config.validator.token_overlap_min,
+    )
+    pdf_artifact = (
+        repo.get_artifact(conn, application.resume_artifact_id)
+        if application.resume_artifact_id is not None
+        else None
+    )
+    return {
+        "application": application,
+        "plan": plan,
+        "plan_artifact": plan_artifact,
+        "pdf_artifact": pdf_artifact,
+        "diff": resume.plan_diff(facts, plan),
+        "report": report,
+    }

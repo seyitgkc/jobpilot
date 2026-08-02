@@ -95,3 +95,11 @@ def list_open(conn: sqlite3.Connection, job_id: int | None = None) -> list[Block
 
 def is_blocked(conn: sqlite3.Connection, job_id: int) -> bool:
     return len(list_open(conn, job_id)) > 0
+
+
+def open_counts(conn: sqlite3.Connection) -> dict[int, int]:
+    rows = conn.execute(
+        "SELECT job_id, COUNT(*) AS n FROM blocker"
+        " WHERE status IN ('open', 'answered') GROUP BY job_id"
+    )
+    return {row["job_id"]: row["n"] for row in rows}

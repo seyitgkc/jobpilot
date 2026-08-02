@@ -18,7 +18,10 @@ _MIGRATION_NAME = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
 
 
 def connect(db_path: Path | str) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
+    # The admin app serves sync handlers from a thread pool over one shared
+    # connection; the sqlite3 module serializes access, so cross-thread use
+    # is safe here.
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")

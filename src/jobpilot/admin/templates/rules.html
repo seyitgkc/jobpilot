@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Rules, jobpilot{% endblock %}
+{% block content %}
+<h1>Rules</h1>
+<p class="muted small">Rules apply to every job. Hard rules carry a pattern
+and reject output mechanically; soft rules guide the model. Proposals wait
+here until you accept them.</p>
+
+{% if groups.proposed %}
+<h2>Proposed ({{ groups.proposed|length }})</h2>
+<table>
+  <tr><th>Kind</th><th>Scope</th><th>Rule</th><th>Enforcement</th><th></th></tr>
+  {% for rule in groups.proposed %}
+  <tr>
+    <td>{{ rule.kind|human }}</td>
+    <td>{{ rule.scope }}</td>
+    <td>{{ rule.text }}{% if rule.pattern %}<br><code>{{ rule.pattern }}</code>{% endif %}</td>
+    <td>{{ rule.enforcement }}</td>
+    <td>
+      <form class="inline" method="post" action="/rules/{{ rule.id }}/status">
+        <input type="hidden" name="status" value="active">
+        <button class="primary">Accept</button>
+      </form>
+      <form class="inline" method="post" action="/rules/{{ rule.id }}/status">
+        <input type="hidden" name="status" value="rejected">
+        <button class="danger">Reject</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2>Active ({{ groups.active|length }})</h2>
+{% if groups.active %}
+<table>
+  <tr><th>Kind</th><th>Scope</th><th>Rule</th><th>Enforcement</th><th>Source</th><th></th></tr>
+  {% for rule in groups.active %}
+  <tr>
+    <td>{{ rule.kind|human }}</td>
+    <td>{{ rule.scope }}</td>
+    <td>{{ rule.text }}{% if rule.pattern %}<br><code>{{ rule.pattern }}</code>{% endif %}</td>
+    <td>{{ rule.enforcement }}</td>
+    <td class="muted small">{{ rule.source|human }}</td>
+    <td>
+      <form class="inline" method="post" action="/rules/{{ rule.id }}/status">
+        <input type="hidden" name="status" value="retired">
+        <button>Retire</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No active rules.</p>
+{% endif %}
+
+<h2>Add a rule</h2>
+<div class="card">
+  <form method="post" action="/rules">
+    <p>
+      <label>Kind
+        <select name="kind">
+          {% for kind in kinds %}<option value="{{ kind }}">{{ kind|human }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Scope <input type="text" name="scope" value="global" size="14"></label>
+      <label>Enforcement
+        <select name="enforcement">
+          {% for enforcement in enforcements %}<option value="{{ enforcement }}">{{ enforcement }}</option>{% endfor %}
+        </select>
+      </label>
+    </p>
+    <p><label>Rule text<br><textarea name="text" required></textarea></label></p>
+    <p><label>Pattern, required for hard rules
+      <input type="text" name="pattern" size="40" placeholder="\bsynergy\b"></label></p>
+    <button class="primary">Add rule</button>
+  </form>
+</div>
+
+{% if groups.retired or groups.rejected %}
+<h2 class="muted">Retired and rejected</h2>
+<table>
+  <tr><th>Status</th><th>Kind</th><th>Scope</th><th>Rule</th></tr>
+  {% for rule in groups.retired + groups.rejected %}
+  <tr class="muted">
+    <td>{{ rule.status }}</td>
+    <td>{{ rule.kind|human }}</td>
+    <td>{{ rule.scope }}</td>
+    <td>{{ rule.text }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

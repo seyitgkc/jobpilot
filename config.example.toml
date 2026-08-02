@@ -35,5 +35,8 @@ mark_seen = false
 [validator]
 token_overlap_min = 0.35
 
+[admin]
+port = 8378
+
 [paths]
 data_root = "./data"

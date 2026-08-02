@@ -69,6 +69,11 @@ class ValidatorConfig:
 
 
 @dataclass(frozen=True)
+class AdminConfig:
+    port: int = 8378
+
+
+@dataclass(frozen=True)
 class PathsConfig:
     data_root: str = "./data"
 
@@ -81,6 +86,7 @@ class Config:
     notify: NotifyConfig = field(default_factory=NotifyConfig)
     mail: MailConfig = field(default_factory=MailConfig)
     validator: ValidatorConfig = field(default_factory=ValidatorConfig)
+    admin: AdminConfig = field(default_factory=AdminConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
 
 
@@ -91,6 +97,7 @@ _SECTIONS = {
     "notify": NotifyConfig,
     "mail": MailConfig,
     "validator": ValidatorConfig,
+    "admin": AdminConfig,
     "paths": PathsConfig,
 }
 

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Resume review, job {{ job.id }}, jobpilot{% endblock %}
+{% block content %}
+<h1>Resume review: {{ job.title or "unknown role" }} at {{ job.company or "unknown company" }}</h1>
+<p class="small"><a href="/jobs/{{ job.id }}">Back to job #{{ job.id }}</a></p>
+
+{% if data is none %}
+<div class="card"><p>This job has no tailored resume yet. Run a tailoring pass first.</p></div>
+{% else %}
+
+<div class="card">
+  {% if data.pdf_artifact %}
+  <p><a href="/jobs/{{ job.id }}/artifacts/{{ data.pdf_artifact.id }}"><b>Open the tailored PDF</b></a></p>
+  {% else %}
+  <p class="muted">No PDF was built for this plan; the LaTeX source is on the job page.</p>
+  {% endif %}
+
+  {% if data.report.ok %}
+  <p><span class="badge status">validator passed</span></p>
+  {% else %}
+  <p><span class="badge fail">validator found problems</span></p>
+  <ul class="plain">
+    {% for violation in data.report.violations %}
+    <li><code>{{ violation.code }}</code>
+      {% if violation.fact_id %}<code>{{ violation.fact_id }}</code>{% endif %}
+      {{ violation.message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if data.application.resume_approved_at %}
+  <p>Approved {{ data.application.resume_approved_at }}</p>
+  {% else %}
+  <form method="post" action="/jobs/{{ job.id }}/approve-resume">
+    <button class="primary">Approve this resume</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if data.diff.summary %}
+<h2>Summary</h2>
+<table>
+  <tr><th>Master</th><th>Tailored</th></tr>
+  <tr class="{% if data.diff.summary.master != data.diff.summary.rendered %}pair-changed{% endif %}">
+    <td class="pair-master">{{ data.diff.summary.master }}</td>
+    <td>{{ data.diff.summary.rendered }}</td>
+  </tr>
+</table>
+{% endif %}
+
+<h2>Experience</h2>
+{% for entry in data.diff.experiences %}
+<div class="card">
+  <p><b>{{ entry.role }}</b>, {{ entry.org }}
+    {% if not entry.included %}<span class="badge off">dropped entirely</span>{% endif %}
+    {% if entry.order_changed %}<span class="badge off">bullets reordered</span>{% endif %}
+  </p>
+  {% if entry.bullets %}
+  <table>
+    <tr><th>Master</th><th>Tailored</th></tr>
+    {% for bullet in entry.bullets %}
+    <tr class="{% if bullet.changed %}pair-changed{% endif %}">
+      <td class="pair-master">{{ bullet.master }}</td>
+      <td>{{ bullet.rendered }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {% if entry.dropped_bullets %}
+  <p class="small muted">Dropped: {{ entry.dropped_bullets|join(", ") }}</p>
+  {% endif %}
+</div>
+{% endfor %}
+
+<h2>Skills and projects</h2>
+<div class="card">
+  <p><b>Skill groups kept:</b> {{ data.diff.skills.included|join(", ") or "none" }}</p>
+  {% if data.diff.skills.dropped %}
+  <p class="muted small">Dropped: {{ data.diff.skills.dropped|join(", ") }}</p>
+  {% endif %}
+  <p><b>Projects kept:</b> {{ data.diff.projects.included|join(", ") or "none" }}</p>
+  {% if data.diff.projects.dropped %}
+  <p class="muted small">Dropped: {{ data.diff.projects.dropped|join(", ") }}</p>
+  {% endif %}
+</div>
+
+{% endif %}
+{% endblock %}

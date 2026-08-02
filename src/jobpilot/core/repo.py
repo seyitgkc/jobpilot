@@ -188,6 +188,24 @@ def add_artifact(
     return Artifact.from_row(row)
 
 
+def get_artifact(conn: sqlite3.Connection, artifact_id: int) -> Artifact:
+    row = conn.execute("SELECT * FROM artifact WHERE id = ?", (artifact_id,)).fetchone()
+    if row is None:
+        raise NotFound(f"artifact {artifact_id}")
+    return Artifact.from_row(row)
+
+
+def status_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    rows = conn.execute("SELECT status, COUNT(*) AS n FROM job GROUP BY status")
+    return {row["status"]: row["n"] for row in rows}
+
+
+def unassigned_mail_count(conn: sqlite3.Connection) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM mail WHERE status = 'needs_assignment'"
+    ).fetchone()[0]
+
+
 def list_artifacts(conn: sqlite3.Connection, job_id: int) -> list[Artifact]:
     rows = conn.execute(
         "SELECT * FROM artifact WHERE job_id = ? ORDER BY id", (job_id,)
