@@ -279,6 +279,26 @@ def test_form_verbs_end_to_end(env, site_url, tmp_path):
         client.close_tab(job.id)
 
 
+def test_restart_only_marks_in_flight_tabs_lost(env, site_url):
+    from jobpilot.browserd.daemon import BrowserDaemon
+
+    conn = env["conn"]
+    in_flight = repo.create_job(conn, f"{site_url}/form.html", "claude")
+    done = repo.create_job(conn, f"{site_url}/job.html", "claude")
+    for job_id, status in ((in_flight.id, "filled"), (done.id, "acknowledged")):
+        conn.execute("UPDATE job SET status = ? WHERE id = ?", (status, job_id))
+        repo.set_tab_state(conn, job_id, "open", "browserd")
+    conn.commit()
+
+    # What a daemon start does to tabs left behind by a previous run.
+    daemon = BrowserDaemon(env["config"], env["paths"], headless=True)
+    daemon._conn = conn
+    daemon._mark_lost_tabs()
+
+    assert repo.get_job(conn, in_flight.id).tab_state == "lost"
+    assert repo.get_job(conn, done.id).tab_state == "none"
+
+
 def test_capture_end_to_end(env, site_url):
     result = capture_pipeline.capture(
         env["conn"], env["paths"], env["config"], env["client"], f"{site_url}/job.html"

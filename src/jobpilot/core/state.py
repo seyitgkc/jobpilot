@@ -20,6 +20,20 @@ from .models import Job
 
 TERMINAL = frozenset({"rejected", "offer", "abandoned"})
 
+# Statuses where no browser tab is expected any more.
+TAB_IRRELEVANT = frozenset(
+    {
+        "submitted",
+        "submitted_manually",
+        "acknowledged",
+        "in_process",
+        "interview",
+        "rejected",
+        "offer",
+        "abandoned",
+    }
+)
+
 _MAIL_DRIVEN = frozenset({"acknowledged", "in_process", "interview", "rejected", "offer"})
 
 _EDGES: dict[str, frozenset[str]] = {
@@ -109,6 +123,10 @@ def transition(
             job_id=job_id,
             payload={"from": job.status, "to": to_status, **(payload or {})},
         )
+    # Past submission the tab has no further use, so a tab that went missing
+    # stops being something to reopen.
+    if to_status in TAB_IRRELEVANT and job.tab_state != "none":
+        repo.set_tab_state(conn, job_id, "none", actor)
     return repo.get_job(conn, job_id)
 
 

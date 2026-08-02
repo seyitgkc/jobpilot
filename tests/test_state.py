@@ -88,6 +88,24 @@ def test_unknown_status_rejected():
         state.is_legal("nonsense", "captured")
 
 
+def test_post_submit_transition_clears_a_lost_tab(conn):
+    job = make_job(conn, status="filled")
+    repo.set_tab_state(conn, job.id, "lost", "browserd")
+
+    state.transition(conn, job.id, "submitting", "claude")
+    assert repo.get_job(conn, job.id).tab_state == "lost"
+
+    state.transition(conn, job.id, "submitted", "claude")
+    assert repo.get_job(conn, job.id).tab_state == "none"
+
+
+def test_manual_submission_clears_a_lost_tab(conn):
+    job = make_job(conn, status="manual_required")
+    repo.set_tab_state(conn, job.id, "lost", "browserd")
+    state.transition(conn, job.id, "submitted_manually", "owner")
+    assert repo.get_job(conn, job.id).tab_state == "none"
+
+
 def test_transition_appends_event(conn):
     job = make_job(conn)
     state.transition(conn, job.id, "tailored", "claude", payload={"note": "done"})

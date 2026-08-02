@@ -39,6 +39,19 @@ def test_agenda_buckets(conn, paths):
     assert view["unassigned_mail"] == 0
 
 
+def test_lost_tabs_drop_out_after_submission(conn, paths):
+    job = make(conn, paths, "filled")
+    repo.set_tab_state(conn, job.id, "lost", "browserd")
+    assert [j["id"] for j in agenda.agenda(conn)["lost_tabs"]] == [job.id]
+
+    state.approve_submit(conn, job.id, "owner")
+    state.transition(conn, job.id, "submitting", "owner")
+    state.transition(conn, job.id, "submitted", "owner")
+
+    assert agenda.agenda(conn)["lost_tabs"] == []
+    assert repo.get_job(conn, job.id).tab_state == "none"
+
+
 def test_agenda_respects_gate_overrides(conn, paths):
     job = make(conn, paths, "tailored")
     repo.set_job_gates(conn, job.id, "owner", resume_glance_gate="off")

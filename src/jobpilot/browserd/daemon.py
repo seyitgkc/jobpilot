@@ -15,7 +15,7 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from ..config import Config, DataPaths
 from ..db import open_db
-from ..core import events, repo
+from ..core import events, repo, state
 from . import archive, focus, verbs
 
 
@@ -70,8 +70,12 @@ class BrowserDaemon:
             self._conn.close()
 
     def _mark_lost_tabs(self) -> None:
+        """Tabs recorded as open belong to a browser that is gone. Ones on
+        jobs still in flight are lost and worth replaying; past submission
+        the tab has no further use, so it is simply closed."""
         for job in repo.jobs_with_tab_state(self._conn, "open"):
-            repo.set_tab_state(self._conn, job.id, "lost", "browserd")
+            gone = "none" if job.status in state.TAB_IRRELEVANT else "lost"
+            repo.set_tab_state(self._conn, job.id, gone, "browserd")
 
     def open_tab_count(self) -> int:
         return len(self.tabs)

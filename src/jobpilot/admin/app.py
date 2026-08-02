@@ -136,7 +136,11 @@ def create_app(
             blocked=blocked,
             open_blockers=sum(blocked.values()),
             unassigned_mail=repo.unassigned_mail_count(conn),
-            lost_tabs=repo.jobs_with_tab_state(conn, "lost"),
+            lost_tabs=[
+                job
+                for job in repo.jobs_with_tab_state(conn, "lost")
+                if job.status not in state.TAB_IRRELEVANT
+            ],
             tabs=tabs,
         )
 

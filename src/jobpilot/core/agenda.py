@@ -109,5 +109,9 @@ def agenda(conn: sqlite3.Connection) -> dict:
             for row in unclassified
         ],
         "unassigned_mail": len(mail.list_unassigned(conn)),
-        "lost_tabs": [_summary(job) for job in repo.jobs_with_tab_state(conn, "lost")],
+        "lost_tabs": [
+            _summary(job)
+            for job in repo.jobs_with_tab_state(conn, "lost")
+            if job.status not in state.TAB_IRRELEVANT
+        ],
     }
