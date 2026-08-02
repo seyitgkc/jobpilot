@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime data: SQLite, browser profile, mail archive, per-job artifacts
+data/
+
+# Local config (copy config.example.toml to config.toml)
+config.toml
+
+# Local editor and tool state
+.claude/
+.cursor/
+.zed/
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
