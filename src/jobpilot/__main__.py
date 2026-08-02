@@ -31,6 +31,10 @@ def main(argv: list[str] | None = None) -> int:
         "submit", help="submit a filled application behind the submit gate"
     )
     submit_parser.add_argument("job_id", type=int)
+    subparsers.add_parser(
+        "corpus-check",
+        help="replay form extraction over archived pages and report drift",
+    )
     args = parser.parse_args(argv)
 
     config = load_config()
@@ -111,6 +115,22 @@ def main(argv: list[str] | None = None) -> int:
         if result.error:
             print(f"  error: {result.error}", file=sys.stderr)
         if result.blockers or result.error:
+            return 1
+
+    if args.command == "corpus-check":
+        from .core import corpus
+
+        report = corpus.corpus_check(conn, paths)
+        print(
+            f"checked {report['checked']} snapshot(s): "
+            f"{len(report['ok'])} stable, {len(report['drift'])} drifted, "
+            f"{len(report['skipped'])} skipped"
+        )
+        for job_id, details in report["drift"].items():
+            print(f"  job {job_id}: {details}")
+        for job_id, reason in report["skipped"].items():
+            print(f"  job {job_id} skipped: {reason}")
+        if report["drift"]:
             return 1
     return 0
 

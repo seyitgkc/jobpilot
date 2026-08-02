@@ -4,8 +4,11 @@
 <h1>Dashboard</h1>
 <div class="chips">
   <span class="chip">Jobs <b>{{ total }}</b></span>
-  <span class="chip">Open blockers <b>{{ open_blockers }}</b></span>
-  <span class="chip">Unassigned mail <b>{{ unassigned_mail }}</b></span>
+  <span class="chip"><a href="/blockers">Open blockers <b>{{ open_blockers }}</b></a></span>
+  <span class="chip"><a href="/mail">Unassigned mail <b>{{ unassigned_mail }}</b></a></span>
+  {% if tabs %}
+  <span class="chip">Browser tabs <b>{{ tabs.open }}/{{ tabs.cap }}</b></span>
+  {% endif %}
   {% for status, n in counts.items() %}
   <span class="chip">{{ status|human }} <b>{{ n }}</b></span>
   {% endfor %}

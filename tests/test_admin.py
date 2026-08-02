@@ -54,6 +54,7 @@ def test_dashboard_lists_jobs_and_blockers(web, paths):
     assert "Platform Engineer" in page.text
     assert "blocked (1)" in page.text
     assert "captured" in page.text
+    assert "Browser tabs" in page.text and "2/8" in page.text
 
 
 def test_dashboard_empty_state(web):

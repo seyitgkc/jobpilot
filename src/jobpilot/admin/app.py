@@ -107,6 +107,12 @@ def create_app(
             )
             if members:
                 groups.append({"status": status, "jobs": members})
+        tabs = None
+        try:
+            health = browser_client_factory().health()
+            tabs = {"open": len(health.get("open_tabs", [])), "cap": config.browser.tab_cap}
+        except Exception:
+            pass
         return render(
             request,
             "dashboard.html",
@@ -117,6 +123,7 @@ def create_app(
             open_blockers=sum(blocked.values()),
             unassigned_mail=repo.unassigned_mail_count(conn),
             lost_tabs=repo.jobs_with_tab_state(conn, "lost"),
+            tabs=tabs,
         )
 
     @app.get("/jobs/{job_id}")

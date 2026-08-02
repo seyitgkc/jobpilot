@@ -82,6 +82,9 @@ class FakeFillClient:
     def close_tab(self, job_id):
         self.closed.append(job_id)
 
+    def health(self):
+        return {"status": "ok", "open_tabs": [1, 2]}
+
 
 def make_mapping(**overrides):
     items = {

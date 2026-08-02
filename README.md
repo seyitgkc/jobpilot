@@ -98,6 +98,31 @@ layer lives in [skills/jobpilot/SKILL.md](skills/jobpilot/SKILL.md); install
 it next to the server so the session follows the pipeline order, the blocker
 contract, and the context hygiene rules.
 
+## Panel, worker, and mail
+
+`jobpilot-admin` serves the panel on `127.0.0.1:8378`: dashboard, job pages,
+the resume review, the blocker resolve queue, unassigned mail, rules, and
+settings. `jobpilot-worker` polls the configured IMAP account on an
+interval, matches messages to jobs (requisition id first, then mail threads,
+then a scored heuristic with an unassigned queue for the rest), classifies
+them, advances application statuses, and sends a summary reminder when
+blockers sit unanswered. Notifications go through ntfy or local mail when
+configured; every one links into the panel.
+
+## Checks
+
+```
+make test
+```
+
+```
+make corpus-check
+```
+
+The corpus check replays form extraction over every archived posting page
+and reports drift against the schema each application was actually filled
+with, so board markup changes show up before they cost an application.
+
 ## Development
 
 Requires Python 3.11 or newer.
