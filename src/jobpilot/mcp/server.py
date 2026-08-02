@@ -123,15 +123,9 @@ class JobpilotApi:
         return {"deleted": job_id}
 
     def job_mark_manual_submitted(self, job_id: int, note: str = "") -> dict:
-        job = repo.get_job(self.conn, job_id)
-        if job.status != "manual_required":
-            state.transition(self.conn, job_id, "manual_required", "owner")
-        job = state.transition(
-            self.conn, job_id, "submitted_manually", "owner",
-            payload={"note": note} if note else None,
+        return _plain(
+            resolve.mark_submitted_manually(self.conn, job_id, "owner", note or None)
         )
-        repo.mark_submitted(self.conn, job_id, "owner", submitted_by="owner")
-        return _plain(job)
 
     # Tailoring: the session authors the plan.
 

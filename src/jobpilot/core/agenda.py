@@ -55,6 +55,17 @@ def agenda(conn: sqlite3.Connection) -> dict:
             else:
                 ready_to_submit.append(job)
 
+    unclassified = [
+        row
+        for row in (
+            mail.Mail.from_row(r)
+            for r in conn.execute(
+                "SELECT * FROM mail WHERE classification IS NULL ORDER BY id DESC"
+            )
+        )
+        if mail.likely_relevant(conn, row)
+    ][:25]
+
     open_blockers = blockers.list_open(conn)
     return {
         "to_tailor": [_summary(job) for job in to_tailor],
@@ -68,6 +79,10 @@ def agenda(conn: sqlite3.Connection) -> dict:
             for b in open_blockers
         ],
         "answered_blockers": [b.id for b in open_blockers if b.status == "answered"],
+        "mail_to_classify": [
+            {"id": row.id, "subject": row.subject, "sender_domain": row.sender_domain}
+            for row in unclassified
+        ],
         "unassigned_mail": len(mail.list_unassigned(conn)),
         "lost_tabs": [_summary(job) for job in repo.jobs_with_tab_state(conn, "lost")],
     }

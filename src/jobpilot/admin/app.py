@@ -174,6 +174,13 @@ def create_app(
             artifacts=artifacts_list,
             filled_shot=filled_shots[-1] if filled_shots else None,
             submit_approvable=job.status in ("filling", "filled") or bool(filled_shots),
+            post_submit=job.status in (
+                "submitted", "submitted_manually", "acknowledged",
+                "in_process", "interview", "offer", "rejected",
+            ),
+            markable_manual=job.status in (
+                "captured", "tailored", "filling", "filled", "manual_required"
+            ),
             open_blockers=blockers.list_open(conn, job_id),
             summary_rows=[row for row in rows if row.kind == "summary"],
             context_rows=[row for row in rows if row.kind != "summary"],
@@ -181,6 +188,16 @@ def create_app(
             has_glance=tailor.glance(conn, paths, config, job_id) is not None,
             abandonable=state.is_legal(job.status, "abandoned"),
         )
+
+    @app.post("/jobs/{job_id}/mark-submitted")
+    def mark_submitted_route(request: Request, job_id: int):
+        conn = db(request)
+        load_job(conn, job_id)
+        try:
+            resolve.mark_submitted_manually(conn, job_id, "owner")
+        except state.IllegalTransition as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return back_to_job(job_id)
 
     @app.post("/jobs/{job_id}/delete")
     def delete_job_route(request: Request, job_id: int):

@@ -343,6 +343,45 @@ def set_classification(
     return get_mail(conn, mail_id)
 
 
+_APPLICATION_SUBJECT = re.compile(
+    r"(?i)applicat|interview|offer|assessment|candidate|recruit|position|"
+    r"role|hiring|talent|job|screen|onboard"
+)
+
+
+def likely_relevant(conn: sqlite3.Connection, mail: Mail, body: str = "") -> bool:
+    """Deterministic prefilter for classification: application mail comes
+    from ATS domains, references a tracked company, or talks like hiring
+    mail. Everything else stays archived and untouched."""
+    if mail.job_id is not None:
+        return True
+    if mail.sender_domain and any(
+        mail.sender_domain.endswith(domain) for domain in ATS_DOMAINS
+    ):
+        return True
+    if mail.subject and _APPLICATION_SUBJECT.search(mail.subject):
+        return True
+    haystack = " ".join(
+        part for part in (mail.subject, mail.sender, body[:1000]) if part
+    ).lower()
+    for job in repo.list_jobs(conn):
+        if job.status == "abandoned":
+            continue
+        tokens = {t for t in _tokens(job.company) if len(t) >= 4}
+        if tokens and any(token in haystack for token in tokens):
+            return True
+    return False
+
+
+def advance_classified(conn: sqlite3.Connection, job_id: int, actor: str) -> None:
+    """Re-apply the classified mail of one job in arrival order; used after
+    the owner reconciles a status by hand so stored confirmations and
+    outcomes catch the job up."""
+    for row in list_for_job(conn, job_id):
+        if row.classification:
+            _advance(conn, row, actor)
+
+
 def _advance(conn: sqlite3.Connection, mail: Mail, actor: str) -> None:
     """Mail-driven status changes, applied only when legal from the current
     status; an out-of-order message becomes a timeline note instead."""
@@ -365,16 +404,38 @@ def _advance(conn: sqlite3.Connection, mail: Mail, actor: str) -> None:
         state.transition(
             conn, mail.job_id, target, actor, payload={"mail_id": mail.id}
         )
-    else:
-        events.append(
-            conn, actor=actor, kind="mail_noted", job_id=mail.job_id,
-            payload={
-                "mail_id": mail.id,
-                "classification": mail.classification,
-                "status": job.status,
-            },
+        return
+    events.append(
+        conn, actor=actor, kind="mail_noted", job_id=mail.job_id,
+        payload={
+            "mail_id": mail.id,
+            "classification": mail.classification,
+            "status": job.status,
+        },
+    )
+    conn.commit()
+    # Outcome mail for a job the system never submitted: the application
+    # went out some other way. Say so loudly instead of leaving the job
+    # stuck in a pre-submit status.
+    pre_submit = job.status in ("captured", "tailored", "filling", "filled", "submitting")
+    if pre_submit:
+        marker = "submitted outside jobpilot"
+        already = any(
+            blocker.question and marker in blocker.question
+            for blocker in blockers.list_open(conn, mail.job_id)
         )
-        conn.commit()
+        if not already:
+            blockers.raise_blocker(
+                conn, mail.job_id, "other", actor,
+                question=(
+                    f"Mail from {mail.sender_domain or 'the company'} reads as "
+                    f"{mail.classification} for this application, but the job "
+                    f"is still {job.status}, so it was likely submitted "
+                    f"outside jobpilot. If you applied by hand, use Mark "
+                    f"submitted by hand on the job page and the stored mail "
+                    f"will catch the status up."
+                ),
+            )
 
 
 def sync(
@@ -399,7 +460,9 @@ def sync(
         mail = _match(conn, paths, mail, config)
         if mail.job_id is not None:
             matched += 1
-        if provider is not None:
+        if provider is not None and likely_relevant(
+            conn, mail, body_text(paths, mail)
+        ):
             try:
                 result = provider.classify_mail(
                     to_message(paths, mail), open_job_summaries(conn)

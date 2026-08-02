@@ -412,6 +412,27 @@ def test_credentials_validation_and_prefill(web, paths):
     assert f'value="{job.id}"' in page.text
 
 
+def test_mark_submitted_by_hand_from_panel(web, paths):
+    client, conn = web
+    job = seed_job(conn, paths, tailored=True)
+    from conftest import force_status
+
+    force_status(conn, job.id, "filling")
+    page = client.get(f"/jobs/{job.id}")
+    assert "Mark submitted by hand" in page.text
+
+    assert client.post(f"/jobs/{job.id}/mark-submitted").status_code == 303
+    refreshed = repo.get_job(conn, job.id)
+    assert refreshed.status == "submitted_manually"
+    application = repo.get_application(conn, job.id)
+    assert application.submitted_at is not None
+
+    page = client.get(f"/jobs/{job.id}")
+    assert "Submitted" in page.text
+    assert "Approve submission" not in page.text
+    assert "Mark submitted by hand" not in page.text
+
+
 def test_dashboard_keeps_cli_hint(web):
     client, _conn = web
     page = client.get("/")

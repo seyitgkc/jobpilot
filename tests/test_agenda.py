@@ -28,6 +28,7 @@ def test_agenda_buckets(conn, paths):
     blocker = blockers.raise_blocker(conn, parked.id, "workday_manual", "claude")
 
     view = agenda.agenda(conn)
+    assert view["mail_to_classify"] == []
     assert [j["id"] for j in view["to_tailor"]] == [captured.id]
     assert [j["id"] for j in view["awaiting_resume_review"]] == [review.id]
     assert [j["id"] for j in view["ready_to_fill"]] == [fillable.id]

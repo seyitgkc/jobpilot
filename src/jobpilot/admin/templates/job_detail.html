@@ -19,6 +19,9 @@
 <div class="grid">
   <div class="card">
     <h2>Approvals</h2>
+    {% if post_submit %}
+    <p>Submitted{% if application and application.submitted_at %} {{ application.submitted_at }}{% endif %}{% if application and application.submitted_by %} by {{ application.submitted_by }}{% endif %}</p>
+    {% else %}
     {% if application and application.resume_approved_at %}
       <p>Resume approved {{ application.resume_approved_at }}
         {% if has_glance %}<a class="small" href="/jobs/{{ job.id }}/glance">review</a>{% endif %}</p>
@@ -41,6 +44,13 @@
       </form>
     {% else %}
       <p class="muted">Submission approval opens once the form is filled.</p>
+    {% endif %}
+    {% if markable_manual %}
+    <form class="inline" method="post" action="/jobs/{{ job.id }}/mark-submitted"
+          onsubmit="return confirm('Mark this application as submitted by hand? Stored mail will catch the status up.')">
+      <button>Mark submitted by hand</button>
+    </form>
+    {% endif %}
     {% endif %}
   </div>
 

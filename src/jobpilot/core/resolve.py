@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 from ..config import Config, DataPaths
 from ..util import from_json, to_json
-from . import answers, artifacts, blockers, events, fill, repo, state
+from . import answers, artifacts, blockers, events, fill, mail, repo, state
 from .models import Blocker, Job
 
 ANSWER_VERBS = frozenset({"set", "select", "check"})
@@ -372,6 +372,28 @@ def replay_tab(
     conn.commit()
     result.job = repo.get_job(conn, job_id)
     return result
+
+
+def mark_submitted_manually(
+    conn: sqlite3.Connection, job_id: int, actor: str, note: str | None = None
+) -> Job:
+    """The owner submitted this application outside the system. Move the job
+    to submitted_manually, stamp the application, resolve any blocker that
+    was pointing this out, and replay the job's classified mail so stored
+    confirmations and outcomes catch the status up."""
+    job = repo.get_job(conn, job_id)
+    if job.status != "manual_required":
+        state.transition(conn, job_id, "manual_required", actor)
+    job = state.transition(
+        conn, job_id, "submitted_manually", actor,
+        payload={"note": note} if note else None,
+    )
+    repo.mark_submitted(conn, job_id, actor, submitted_by="owner")
+    for blocker in blockers.list_open(conn, job_id):
+        if blocker.question and "submitted outside jobpilot" in blocker.question:
+            blockers.set_status(conn, blocker.id, "resolved", actor)
+    mail.advance_classified(conn, job_id, actor)
+    return repo.get_job(conn, job_id)
 
 
 def abandon_job(conn: sqlite3.Connection, job_id: int, actor: str) -> Job:

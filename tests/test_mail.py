@@ -212,6 +212,96 @@ def test_bad_classification_rejected(conn, paths):
         mail.set_classification(conn, 1, "spam", "owner")
 
 
+def test_classification_skips_irrelevant_mail(conn, paths):
+    calls = []
+
+    class CountingProvider:
+        def classify_mail(self, msg, open_jobs):
+            calls.append(msg.subject)
+            from jobpilot.providers.schemas import MailClassification
+
+            return MailClassification(classification="other", confidence=0.5)
+
+    newsletter = eml(
+        subject="Weekend deals on flights",
+        sender="Deals <promo@travel-deals.example>",
+        message_id="<promo1@x>",
+    )
+    application = eml(
+        subject="Thank you for applying",
+        message_id="<app1@x>",
+    )
+    sync_with(conn, paths, [newsletter, application], provider=CountingProvider())
+    assert calls == ["Thank you for applying"]
+
+    promo = mail.get_mail(conn, 1)
+    assert promo.classification is None
+
+
+def test_likely_relevant_signals(conn, paths):
+    make_job(conn, company="Initech Systems")
+    sync_with(
+        conn, paths,
+        [
+            eml(subject="Lunch on Sunday?", sender="Sam <sam@family.example>",
+                message_id="<p1@x>"),
+            eml(subject="Update from Initech Systems",
+                sender="News <news@corporate.example>", message_id="<p2@x>"),
+        ],
+    )
+    personal = mail.get_mail(conn, 1)
+    company_mail = mail.get_mail(conn, 2)
+    assert not mail.likely_relevant(conn, personal, "see you there")
+    assert mail.likely_relevant(conn, company_mail, "")
+
+
+def test_outcome_mail_on_presubmit_job_raises_reconcile_blocker(conn, paths):
+    from jobpilot.core import blockers
+
+    job = make_job(conn, req_id="4567890", submitted=False)
+    conn.execute("UPDATE job SET status = 'filling' WHERE id = ?", (job.id,))
+    conn.commit()
+
+    provider = ClassifyProvider("confirmation")
+    sync_with(
+        conn, paths,
+        [eml(subject="Thank you for applying, ref 4567890", message_id="<c1@x>")],
+        provider=provider,
+    )
+    assert repo.get_job(conn, job.id).status == "filling"
+    open_blockers = blockers.list_open(conn, job.id)
+    assert len(open_blockers) == 1
+    assert "submitted outside jobpilot" in open_blockers[0].question
+
+    # A second outcome message does not stack another blocker.
+    sync_with(
+        conn, paths,
+        [eml(subject="Interview for 4567890", message_id="<c2@x>")],
+        provider=ClassifyProvider("interview"),
+    )
+    assert len(blockers.list_open(conn, job.id)) == 1
+
+
+def test_mark_submitted_manually_reconciles(conn, paths):
+    from jobpilot.core import blockers, resolve
+
+    job = make_job(conn, req_id="4567890", submitted=False)
+    conn.execute("UPDATE job SET status = 'filling' WHERE id = ?", (job.id,))
+    conn.commit()
+    sync_with(
+        conn, paths,
+        [eml(subject="Thank you for applying, ref 4567890", message_id="<c1@x>")],
+        provider=ClassifyProvider("confirmation"),
+    )
+
+    reconciled = resolve.mark_submitted_manually(conn, job.id, "owner")
+    assert reconciled.status == "acknowledged"
+    application = repo.get_application(conn, job.id)
+    assert application.submitted_at is not None
+    assert application.submitted_by == "owner"
+    assert blockers.list_open(conn, job.id) == []
+
+
 def test_imap_password_prefers_env(monkeypatch):
     from jobpilot.config import Config, MailConfig
 
