@@ -6,6 +6,10 @@ import shutil
 import subprocess
 from pathlib import Path
 
+# MacTeX and BasicTeX symlink their binaries here; processes launched before
+# the installer updated the login PATH still find them through this fallback.
+_TEXBIN = Path("/Library/TeX/texbin")
+
 
 class LatexUnavailable(Exception):
     pass
@@ -17,8 +21,18 @@ class CompileError(Exception):
         self.log_excerpt = log_excerpt
 
 
+def _find(name: str) -> str | None:
+    on_path = shutil.which(name)
+    if on_path:
+        return on_path
+    candidate = _TEXBIN / name
+    if candidate.exists():
+        return str(candidate)
+    return None
+
+
 def latexmk_available() -> bool:
-    return shutil.which("latexmk") is not None and shutil.which("pdflatex") is not None
+    return _find("latexmk") is not None and _find("pdflatex") is not None
 
 
 def _log_excerpt(log_path: Path) -> str:
@@ -45,7 +59,7 @@ def compile_tex(tex_path: Path, timeout: int = 180) -> Path:
     workdir = tex_path.parent
     result = subprocess.run(
         [
-            "latexmk",
+            _find("latexmk"),
             "-pdf",
             "-interaction=nonstopmode",
             "-halt-on-error",
