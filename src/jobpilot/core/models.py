@@ -102,6 +102,30 @@ class Rule:
 
 
 @dataclass(frozen=True)
+class Blocker:
+    id: int
+    job_id: int
+    kind: str
+    question: str | None
+    field_spec: str | None
+    screenshot_artifact_id: int | None
+    page_context: str | None
+    proposed_action: str | None
+    agreed_action: str | None
+    answer_reusable: bool
+    status: str
+    raised_at: str
+    answered_at: str | None
+    resolved_at: str | None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "Blocker":
+        data = _cols(row)
+        data["answer_reusable"] = bool(data["answer_reusable"])
+        return cls(**data)
+
+
+@dataclass(frozen=True)
 class ContextRow:
     id: int
     job_id: int

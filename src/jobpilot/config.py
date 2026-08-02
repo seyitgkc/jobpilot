@@ -33,6 +33,7 @@ class BrowserConfig:
     tab_cap: int = 8
     focus_policy: str = "notify_only"
     settle_ms: int = 1500
+    daemon_port: int = 8377
 
 
 @dataclass(frozen=True)

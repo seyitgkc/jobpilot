@@ -97,6 +97,70 @@ def set_job_gates(
     return get_job(conn, job_id)
 
 
+def update_job_capture(
+    conn: sqlite3.Connection,
+    job_id: int,
+    actor: str,
+    *,
+    canonical_url: str | None,
+    company: str | None,
+    title: str | None,
+    board: str | None,
+    req_id: str | None,
+    workday_flag: bool,
+) -> Job:
+    get_job(conn, job_id)
+    with conn:
+        conn.execute(
+            "UPDATE job SET canonical_url = ?, company = ?, title = ?, board = ?,"
+            " req_id = ?, workday_flag = ?, updated_at = ? WHERE id = ?",
+            (canonical_url, company, title, board, req_id, int(workday_flag), utcnow(), job_id),
+        )
+        events.append(
+            conn,
+            actor=actor,
+            kind="job_captured",
+            job_id=job_id,
+            payload={
+                "canonical_url": canonical_url,
+                "company": company,
+                "title": title,
+                "board": board,
+                "req_id": req_id,
+                "workday_flag": workday_flag,
+            },
+        )
+    return get_job(conn, job_id)
+
+
+def set_tab_state(conn: sqlite3.Connection, job_id: int, tab_state: str, actor: str) -> Job:
+    if tab_state not in ("none", "open", "parked", "lost"):
+        raise ValueError(f"tab_state must be none|open|parked|lost, got {tab_state!r}")
+    job = get_job(conn, job_id)
+    if job.tab_state == tab_state:
+        return job
+    with conn:
+        conn.execute(
+            "UPDATE job SET tab_state = ?, updated_at = ? WHERE id = ?",
+            (tab_state, utcnow(), job_id),
+        )
+        events.append(
+            conn,
+            actor=actor,
+            kind="tab_state_changed",
+            job_id=job_id,
+            payload={"from": job.tab_state, "to": tab_state},
+        )
+    return get_job(conn, job_id)
+
+
+def jobs_with_tab_state(conn: sqlite3.Connection, tab_state: str) -> list[Job]:
+    rows = conn.execute(
+        "SELECT * FROM job WHERE tab_state = ? ORDER BY id", (tab_state,)
+    ).fetchall()
+    return [Job.from_row(row) for row in rows]
+
+
 def add_artifact(
     conn: sqlite3.Connection,
     job_id: int,

@@ -1,0 +1,173 @@
+"""The daemon owning the single persistent Chromium context.
+
+One tab per job, registry mirrored to job.tab_state so a restart can report
+lost tabs. All DOM access anywhere in the system goes through this process.
+PDF rendering uses a transient headless browser because Chromium cannot print
+to PDF from a headed window; it renders the already-archived HTML, so the PDF
+matches the archive byte for byte.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+
+from ..config import Config, DataPaths
+from ..db import open_db
+from ..core import repo
+from . import archive
+
+
+class TabCapReached(Exception):
+    pass
+
+
+class TabNotFound(Exception):
+    pass
+
+
+class BrowserDaemon:
+    def __init__(self, config: Config, paths: DataPaths, headless: bool = False):
+        self.config = config
+        self.paths = paths
+        self.headless = headless
+        self.tabs: dict[int, Page] = {}
+        self._closing: set[int] = set()
+        self._playwright = None
+        self._context: BrowserContext | None = None
+        self._conn = None
+
+    async def start(self) -> None:
+        self._conn = open_db(self.paths, self.config)
+        self._mark_lost_tabs()
+        self.paths.browser_profile_dir.mkdir(parents=True, exist_ok=True)
+        self._playwright = await async_playwright().start()
+        self._context = await self._playwright.chromium.launch_persistent_context(
+            user_data_dir=str(self.paths.browser_profile_dir),
+            headless=self.headless,
+        )
+
+    async def stop(self) -> None:
+        for job_id in list(self.tabs):
+            try:
+                await self.close_tab(job_id)
+            except Exception:
+                pass
+        if self._context is not None:
+            await self._context.close()
+        if self._playwright is not None:
+            await self._playwright.stop()
+        if self._conn is not None:
+            self._conn.close()
+
+    def _mark_lost_tabs(self) -> None:
+        for job in repo.jobs_with_tab_state(self._conn, "open"):
+            repo.set_tab_state(self._conn, job.id, "lost", "browserd")
+
+    def open_tab_count(self) -> int:
+        return len(self.tabs)
+
+    def open_tab_ids(self) -> list[int]:
+        return sorted(self.tabs)
+
+    async def open_tab(self, job_id: int, url: str) -> dict:
+        repo.get_job(self._conn, job_id)
+        page = self.tabs.get(job_id)
+        if page is None:
+            if len(self.tabs) >= self.config.browser.tab_cap:
+                raise TabCapReached(
+                    f"tab cap of {self.config.browser.tab_cap} reached; "
+                    f"open tabs: {self.open_tab_ids()}"
+                )
+            page = await self._context.new_page()
+            self.tabs[job_id] = page
+            page.on("close", lambda _page, job_id=job_id: self._on_page_closed(job_id))
+        await self._navigate(page, url)
+        repo.set_tab_state(self._conn, job_id, "open", "browserd")
+        return {"url": page.url, "title": await page.title()}
+
+    async def _navigate(self, page: Page, url: str) -> None:
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        try:
+            await page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception:
+            pass
+        await asyncio.sleep(self.config.browser.settle_ms / 1000)
+
+    def _page(self, job_id: int) -> Page:
+        page = self.tabs.get(job_id)
+        if page is None:
+            raise TabNotFound(f"no open tab for job {job_id}")
+        return page
+
+    def _on_page_closed(self, job_id: int) -> None:
+        self.tabs.pop(job_id, None)
+        if job_id in self._closing:
+            self._closing.discard(job_id)
+            return
+        # Closed outside the daemon (owner closed the tab or the browser).
+        try:
+            repo.set_tab_state(self._conn, job_id, "lost", "browserd")
+        except Exception:
+            pass
+
+    async def focus(self, job_id: int) -> None:
+        await self._page(job_id).bring_to_front()
+
+    async def snapshot(self, job_id: int) -> dict:
+        page = self._page(job_id)
+        tree = await page.locator("body").aria_snapshot()
+        return {"a11y_tree": tree, "url": page.url, "title": await page.title()}
+
+    async def archive_page(self, job_id: int) -> dict:
+        page = self._page(job_id)
+        html = await page.content()
+
+        async def fetch(url: str):
+            try:
+                response = await self._context.request.get(url, timeout=15000)
+                if not response.ok:
+                    return None
+                body = await response.body()
+                content_type = (
+                    response.headers.get("content-type", "").split(";")[0].strip()
+                    or None
+                )
+                return body, content_type
+            except Exception:
+                return None
+
+        inlined = await archive.inline_html(html, page.url, fetch)
+        # raw_html keeps script tags and embed markers that the inlined
+        # archive drops; board fingerprinting reads it.
+        return {
+            "html": inlined,
+            "raw_html": html,
+            "url": page.url,
+            "title": await page.title(),
+        }
+
+    async def screenshot(self, job_id: int, selector: str | None = None) -> bytes:
+        page = self._page(job_id)
+        if selector:
+            locator = page.locator(selector).first
+            await locator.scroll_into_view_if_needed(timeout=5000)
+            return await locator.screenshot(type="png")
+        return await page.screenshot(type="png", full_page=True)
+
+    async def render_pdf(self, html: str) -> bytes:
+        browser: Browser = await self._playwright.chromium.launch(headless=True)
+        try:
+            page = await browser.new_page()
+            await page.set_content(html, wait_until="load")
+            return await page.pdf(format="A4", print_background=True)
+        finally:
+            await browser.close()
+
+    async def close_tab(self, job_id: int) -> None:
+        page = self._page(job_id)
+        self._closing.add(job_id)
+        await page.close()
+        self.tabs.pop(job_id, None)
+        repo.set_tab_state(self._conn, job_id, "none", "browserd")
