@@ -195,6 +195,39 @@ def list_artifacts(conn: sqlite3.Connection, job_id: int) -> list[Artifact]:
     return [Artifact.from_row(row) for row in rows]
 
 
+def update_application_artifacts(
+    conn: sqlite3.Connection,
+    job_id: int,
+    actor: str,
+    *,
+    resume_artifact_id: int | None = None,
+    tailor_plan_artifact_id: int | None = None,
+    form_schema_artifact_id: int | None = None,
+) -> Application:
+    get_or_create_application(conn, job_id)
+    updates = {
+        "resume_artifact_id": resume_artifact_id,
+        "tailor_plan_artifact_id": tailor_plan_artifact_id,
+        "form_schema_artifact_id": form_schema_artifact_id,
+    }
+    updates = {column: value for column, value in updates.items() if value is not None}
+    if updates:
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        with conn:
+            conn.execute(
+                f"UPDATE application SET {assignments} WHERE job_id = ?",
+                (*updates.values(), job_id),
+            )
+            events.append(
+                conn,
+                actor=actor,
+                kind="application_artifacts_updated",
+                job_id=job_id,
+                payload=updates,
+            )
+    return get_application(conn, job_id)
+
+
 def get_application(conn: sqlite3.Connection, job_id: int) -> Application | None:
     row = conn.execute(
         "SELECT * FROM application WHERE job_id = ?", (job_id,)

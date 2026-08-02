@@ -40,7 +40,9 @@ class BrowserConfig:
 class AIConfig:
     provider: str = "anthropic"
     model: str = "claude-sonnet-4-6"
-    temperature: float = 0.2
+    # None omits the parameter; some newer models reject explicit sampling
+    # values, so clear this when switching models.
+    temperature: float | None = 0.2
     max_tokens: int = 8192
 
 

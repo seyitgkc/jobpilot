@@ -36,6 +36,20 @@ Capture archives the rendered page as single-file HTML and PDF, extracts the
 posting text to markdown, detects the board, and creates the job row. Workday
 postings are marked for manual application and parked behind a blocker.
 
+Tailor a resume against a captured job:
+
+```
+jobpilot tailor 1
+```
+
+Tailoring reads the fact base at `data/resume_master/facts.yaml`, asks the
+configured AI provider for a plan, validates every rendered line against its
+master fact (no new entities, unchanged numbers and dates, bounded
+paraphrase, owner rules enforced), renders LaTeX, and compiles the PDF with
+latexmk. Rejections get one repair round and then park behind a blocker.
+Building the PDF requires a TeX installation with `latexmk` and `pdflatex` on
+PATH; without one the plan and .tex source are still produced.
+
 ## Development
 
 Requires Python 3.11 or newer.

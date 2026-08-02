@@ -1,0 +1,130 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\input{glyphtounicode}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+% Keep the generated PDF machine readable.
+\pdfgentounicode=1
+
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+\begin{document}
+
+\begin{center}
+    \textbf{\Huge \scshape \VAR{name}} \\ \vspace{1pt}
+\BLOCK{if headline}
+    \small \VAR{headline} \\ \vspace{1pt}
+\BLOCK{endif}
+\BLOCK{if contact}
+    \small \VAR{contact}
+\BLOCK{endif}
+\end{center}
+
+\BLOCK{for section in sections}
+\BLOCK{if section.kind == 'summary'}
+\section{Summary}
+  \small{\VAR{section.text}}
+\BLOCK{elif section.kind == 'skills'}
+\section{Technical Skills}
+ \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{
+\BLOCK{for group in section.groups}
+     \textbf{\VAR{group.label}}{: \VAR{group.entries}}\BLOCK{if not loop.last} \\\BLOCK{endif}
+\BLOCK{endfor}
+    }}
+ \end{itemize}
+\BLOCK{elif section.kind == 'experience'}
+\section{Experience}
+  \resumeSubHeadingListStart
+\BLOCK{for entry in section.entries}
+    \resumeSubheading
+      {\VAR{entry.role}}{\VAR{entry.dates}}
+      {\VAR{entry.org}}{\VAR{entry.location}}
+      \resumeItemListStart
+\BLOCK{for bullet in entry.bullets}
+        \resumeItem{\VAR{bullet}}
+\BLOCK{endfor}
+      \resumeItemListEnd
+\BLOCK{endfor}
+  \resumeSubHeadingListEnd
+\BLOCK{elif section.kind == 'projects'}
+\section{Projects}
+  \small{\VAR{section.names}}
+\BLOCK{elif section.kind == 'education'}
+\section{Education}
+  \resumeSubHeadingListStart
+\BLOCK{for entry in section.entries}
+    \resumeSubheading
+      {\VAR{entry.org}}{\VAR{entry.location}}
+      {\VAR{entry.role}}{\VAR{entry.dates}}
+\BLOCK{endfor}
+  \resumeSubHeadingListEnd
+\BLOCK{elif section.kind == 'certifications'}
+\section{Certifications}
+  \resumeSubHeadingListStart
+\BLOCK{for entry in section.entries}
+    \resumeSubheading
+      {\VAR{entry.title}}{\VAR{entry.dates}}
+      {\VAR{entry.org}}{\VAR{entry.location}}
+\BLOCK{endfor}
+  \resumeSubHeadingListEnd
+\BLOCK{elif section.kind == 'languages'}
+\section{Languages}
+  \small{\VAR{section.text}}
+\BLOCK{endif}
+\BLOCK{endfor}
+
+\end{document}
