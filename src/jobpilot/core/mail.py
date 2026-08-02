@@ -16,7 +16,7 @@ import email.utils
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email import policy
 
 from bs4 import BeautifulSoup
@@ -464,10 +464,20 @@ def _imap_fetch(conn: sqlite3.Connection, config: Config):
     with IMAPClient(config.mail.imap_host, ssl=True) as client:
         client.login(config.mail.imap_user, password)
         client.select_folder("INBOX", readonly=not config.mail.mark_seen)
-        uids = [uid for uid in client.search("ALL") if uid > last_uid]
+        if last_uid:
+            uids = [uid for uid in client.search("ALL") if uid > last_uid]
+        else:
+            # First run: bound the backfill to recent mail instead of
+            # archiving the whole mailbox history.
+            since = (datetime.now(timezone.utc) - timedelta(days=30)).date()
+            uids = client.search(["SINCE", since])
         for uid in sorted(uids):
-            data = client.fetch([uid], ["RFC822"])
-            raw = data[uid][b"RFC822"]
+            data = client.fetch([uid], ["BODY.PEEK[]"])
+            entry = data.get(uid) or {}
+            raw = entry.get(b"BODY[]") or entry.get(b"RFC822")
+            if raw is None:
+                settings.set(conn, "mail.last_uid", str(uid), "worker")
+                continue
             yield raw
             settings.set(conn, "mail.last_uid", str(uid), "worker")
             if config.mail.mark_seen:
