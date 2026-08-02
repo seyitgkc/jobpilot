@@ -61,7 +61,7 @@ def test_dashboard_empty_state(web):
     client, _conn = web
     page = client.get("/")
     assert page.status_code == 200
-    assert "jobpilot capture" in page.text
+    assert "Capture posting" in page.text
 
 
 def test_job_detail_shows_timeline_context_artifacts(web, paths):
@@ -293,6 +293,46 @@ def test_lost_tab_replay_from_dashboard(web, paths, fill_client):
 
     kinds = [event.kind for event in events.timeline(conn, job.id)]
     assert "tab_replayed" in kinds
+
+
+def test_capture_from_dashboard(web, paths, fill_client):
+    client, conn = web
+    page = client.get("/")
+    assert "Capture posting" in page.text
+
+    response = client.post("/capture", data={"url": "https://example.com/careers/1"})
+    assert response.status_code == 303
+    assert response.headers["location"] == "/jobs/1"
+    job = repo.get_job(conn, 1)
+    assert job.url == "https://example.com/careers/1"
+    kinds = {artifact.kind for artifact in repo.list_artifacts(conn, job.id)}
+    assert {"snapshot_html", "snapshot_pdf", "posting_md"} <= kinds
+    assert fill_client.closed == [job.id]
+
+
+def test_capture_rejects_bad_url(web):
+    client, _conn = web
+    assert client.post("/capture", data={"url": "not-a-url"}).status_code == 400
+
+
+def test_capture_daemon_down_message(paths):
+    from jobpilot.core.browser_client import BrowserDaemonDown
+
+    class DownClient:
+        def open_tab(self, job_id, url):
+            raise BrowserDaemonDown("browser daemon unreachable")
+
+        def close_tab(self, job_id):
+            pass
+
+        def health(self):
+            raise BrowserDaemonDown("browser daemon unreachable")
+
+    app = create_app(Config(), paths, browser_client_factory=lambda: DownClient())
+    with TestClient(app, follow_redirects=False) as client:
+        response = client.post("/capture", data={"url": "https://example.com/x"})
+        assert response.status_code == 200
+        assert "jobpilot-browserd" in response.text
 
 
 def test_settings_page_and_gate_toggle(web):

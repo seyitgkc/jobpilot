@@ -85,6 +85,9 @@ class FakeFillClient:
     def health(self):
         return {"status": "ok", "open_tabs": [1, 2]}
 
+    def render_pdf(self, html):
+        return b"%PDF-1.4 fake\n"
+
 
 def make_mapping(**overrides):
     items = {

@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..config import Config, DataPaths
 from ..db import open_db
-from ..core import blockers, context, events, mail, repo, resolve, rules, settings, state, tailor
+from ..core import blockers, capture, context, events, mail, repo, resolve, rules, settings, state, tailor
 from ..core.browser_client import BrowserClient, BrowserDaemonError
 from ..core.repo import NotFound
 from ..util import from_json
@@ -125,6 +125,25 @@ def create_app(
             lost_tabs=repo.jobs_with_tab_state(conn, "lost"),
             tabs=tabs,
         )
+
+    @app.post("/capture")
+    def capture_job(request: Request, url: str = Form(...)):
+        conn = db(request)
+        url = url.strip()
+        if not url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="enter a full posting URL")
+        try:
+            result = capture.capture(
+                conn, paths, config, browser_client_factory(), url, actor="owner"
+            )
+        except BrowserDaemonError as error:
+            return message(
+                request, "Capture needs the browser",
+                f"The browser daemon did not respond ({error}). Start it with "
+                f"jobpilot-browserd, then capture again.",
+                "/",
+            )
+        return RedirectResponse(f"/jobs/{result.job.id}", status_code=303)
 
     @app.get("/jobs/{job_id}")
     def job_detail(request: Request, job_id: int):

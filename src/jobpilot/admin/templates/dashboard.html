@@ -14,12 +14,15 @@
   {% endfor %}
 </div>
 
-{% if not groups %}
 <div class="card">
-  <p>No jobs yet. Capture a posting from the terminal:</p>
-  <pre>jobpilot capture &lt;posting url&gt;</pre>
+  <form method="post" action="/capture">
+    <input type="url" name="url" size="52" required
+           placeholder="https://boards.greenhouse.io/company/jobs/123456">
+    <button class="primary">Capture posting</button>
+  </form>
+  <p class="muted small">Archives the posting and creates the job. The
+  browser daemon must be running; the page opens in its window.</p>
 </div>
-{% endif %}
 
 {% if lost_tabs %}
 <h2>Lost tabs</h2>
