@@ -4,14 +4,22 @@ from fastapi.testclient import TestClient
 from conftest import write_facts
 from jobpilot.admin.app import create_app
 from jobpilot.config import Config
-from jobpilot.core import artifacts, blockers, context, repo, rules, settings, tailor
+from jobpilot.core import answers, artifacts, blockers, fill, repo, rules, settings, state, tailor
+from jobpilot.core import context
 from jobpilot.db import open_db
+from jobpilot.providers.schemas import MappedField
+from test_fill import FakeFillClient, make_mapping
 from test_tailor import POSTING, FakeProvider, fake_compile, good_plan
 
 
 @pytest.fixture
-def web(paths):
-    app = create_app(Config(), paths)
+def fill_client():
+    return FakeFillClient()
+
+
+@pytest.fixture
+def web(paths, fill_client):
+    app = create_app(Config(), paths, browser_client_factory=lambda: fill_client)
     with TestClient(app, follow_redirects=False) as client:
         conn = open_db(paths, Config())
         yield client, conn
@@ -188,6 +196,102 @@ def test_rules_bad_input(web):
         data={"kind": "banned_word", "scope": "global", "text": "x", "enforcement": "hard"},
     )
     assert response.status_code == 400
+
+
+def parked_blocker(conn, paths, fill_client):
+    job = seed_job(conn, paths, tailored=True)
+    fill.extract_form(conn, paths, Config(), fill_client, job.id)
+    state.approve_resume(conn, job.id, "owner")
+    mapping = make_mapping(
+        salary=MappedField(field_id="salary", needs_owner=True, reason="no banked salary"),
+    )
+    result = fill.apply_mapping(conn, paths, Config(), fill_client, job.id, mapping)
+    return job, result.blockers[0]
+
+
+def test_blockers_queue_answer_and_execute(web, paths, fill_client):
+    client, conn = web
+    job, blocker = parked_blocker(conn, paths, fill_client)
+
+    page = client.get("/blockers")
+    assert page.status_code == 200
+    assert "Cover letter" in page.text
+    assert "Save answers and fill them" in page.text
+    assert "Save for future applications" in page.text
+
+    deep = client.get(f"/blockers/{blocker.id}")
+    assert deep.status_code == 200
+    assert "missing answer" in deep.text
+
+    response = client.post(
+        f"/blockers/{blocker.id}/answer",
+        data={
+            "value_cover": "I build payment systems.",
+            "value_salary": "130000",
+            "bank_salary": "1",
+        },
+    )
+    assert response.status_code == 303
+    assert blockers.get_blocker(conn, blocker.id).status == "resolved"
+    assert repo.get_job(conn, job.id).status == "filled"
+    assert answers.get_answer(conn, "Desired salary").answer == "130000"
+
+    empty = client.get("/blockers")
+    assert "Nothing is waiting on you" in empty.text
+
+
+def test_blockers_answer_requires_all_fields(web, paths, fill_client):
+    client, conn = web
+    _job, blocker = parked_blocker(conn, paths, fill_client)
+    response = client.post(
+        f"/blockers/{blocker.id}/answer", data={"value_cover": "text only"}
+    )
+    assert response.status_code == 400
+
+
+def test_blocker_manual_resolve_routes(web, paths):
+    client, conn = web
+    job = seed_job(conn, paths)
+    blocker = blockers.raise_blocker(
+        conn, job.id, "workday_manual", "claude", question="apply by hand"
+    )
+    page = client.get("/blockers")
+    assert "Mark resolved by hand" in page.text
+    assert client.post(f"/blockers/{blocker.id}/resolve").status_code == 303
+    assert blockers.get_blocker(conn, blocker.id).status == "resolved"
+
+
+def test_resume_approval_blocker_resolve_approves(web, paths):
+    client, conn = web
+    job = seed_job(conn, paths, tailored=True)
+    blocker = blockers.raise_blocker(
+        conn, job.id, "resume_approval", "claude", question="approve the resume"
+    )
+    assert client.post(f"/blockers/{blocker.id}/resolve").status_code == 303
+    assert repo.get_application(conn, job.id).resume_approved_at is not None
+    assert blockers.get_blocker(conn, blocker.id).status == "resolved"
+
+
+def test_lost_tab_replay_from_dashboard(web, paths, fill_client):
+    client, conn = web
+    job, blocker = parked_blocker(conn, paths, fill_client)
+    client.post(
+        f"/blockers/{blocker.id}/answer",
+        data={"value_cover": "text", "value_salary": "130000"},
+    )
+    repo.set_tab_state(conn, job.id, "lost", "browserd")
+
+    page = client.get("/")
+    assert "Lost tabs" in page.text
+    assert "Reopen and replay" in page.text
+
+    response = client.post(f"/jobs/{job.id}/replay")
+    assert response.status_code == 303
+    assert fill_client.opened
+    from jobpilot.core import events
+
+    kinds = [event.kind for event in events.timeline(conn, job.id)]
+    assert "tab_replayed" in kinds
 
 
 def test_settings_page_and_gate_toggle(web):

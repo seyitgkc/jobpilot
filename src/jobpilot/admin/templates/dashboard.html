@@ -18,6 +18,22 @@
 </div>
 {% endif %}
 
+{% if lost_tabs %}
+<h2>Lost tabs</h2>
+<div class="card">
+  <p class="muted small">These jobs had a tab open when the browser went
+  away. Reopening replays the checkpointed fills.</p>
+  {% for job in lost_tabs %}
+  <div class="field-row">
+    <a href="/jobs/{{ job.id }}">#{{ job.id }} {{ job.title or "?" }} at {{ job.company or "?" }}</a>
+    <form class="inline" method="post" action="/jobs/{{ job.id }}/replay">
+      <button>Reopen and replay</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% for group in groups %}
 <h2>{{ group.status|human }} ({{ group.jobs|length }})</h2>
 <table>

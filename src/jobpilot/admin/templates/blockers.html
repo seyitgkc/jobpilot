@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Blockers, jobpilot{% endblock %}
+{% block content %}
+<h1>Blockers</h1>
+{% if not views %}
+<div class="card"><p>Nothing is waiting on you.</p></div>
+{% endif %}
+{% for view in views %}
+{% include "_blocker.html" %}
+{% endfor %}
+{% endblock %}

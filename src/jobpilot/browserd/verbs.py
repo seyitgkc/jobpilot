@@ -201,6 +201,12 @@ async def apply_actions(page: Page, actions: list[dict], selector_map: dict) -> 
     return results
 
 
+async def crop(page: Page, descriptor: dict) -> bytes:
+    locator = _locator(page, descriptor)
+    await locator.scroll_into_view_if_needed(timeout=5000)
+    return await locator.screenshot(type="png", timeout=5000)
+
+
 async def validate_fields(page: Page, fields: list[dict], selector_map: dict) -> dict:
     outcome: dict[str, dict] = {}
     for field in fields:

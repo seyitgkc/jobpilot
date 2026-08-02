@@ -1,0 +1,73 @@
+<div class="card">
+  {% set blocker = view.blocker %}
+  <p>
+    {% if view.job %}
+    <b><a href="/jobs/{{ view.job.id }}">#{{ view.job.id }} {{ view.job.title or "?" }} at {{ view.job.company or "?" }}</a></b>
+    {% endif %}
+    <span class="badge blocked">{{ blocker.kind|human }}</span>
+    <span class="badge off">{{ blocker.status }}</span>
+    <span class="muted small">raised {{ blocker.raised_at }}</span>
+    <a class="small" href="/blockers/{{ blocker.id }}">link</a>
+  </p>
+  {% if blocker.question %}<p>{{ blocker.question }}</p>{% endif %}
+
+  {% if view.answerable and blocker.status == "open" %}
+  <form method="post" action="/blockers/{{ blocker.id }}/answer">
+    {% for field in view.fields %}
+    <div class="field-row">
+      <p><b>{{ field.label or field.field_id }}</b>
+        <span class="muted small">{{ field.type or "text" }}{% if field.required %}, required{% endif %}{% if field.maxlen %}, max {{ field.maxlen }} chars{% endif %}</span>
+        {% if field.reason %}<span class="muted small">({{ field.reason }})</span>{% endif %}
+      </p>
+      {% if field.screenshot_artifact_id and view.job %}
+      <img class="crop" src="/jobs/{{ view.job.id }}/artifacts/{{ field.screenshot_artifact_id }}" alt="{{ field.label or field.field_id }} on the page">
+      {% endif %}
+      {% if field.type in ("select", "radio") %}
+      <select name="value_{{ field.field_id }}" required>
+        <option value="">Choose</option>
+        {% for option in field.options %}
+        <option value="{{ option }}" {% if field.proposed == option %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+      {% elif field.type == "multiselect" %}
+      <select name="value_{{ field.field_id }}" multiple>
+        {% for option in field.options %}<option value="{{ option }}">{{ option }}</option>{% endfor %}
+      </select>
+      {% elif field.type == "checkbox" %}
+      <select name="value_{{ field.field_id }}" required>
+        <option value="">Choose</option>
+        <option value="yes" {% if field.proposed == "yes" %}selected{% endif %}>yes</option>
+        <option value="no" {% if field.proposed == "no" %}selected{% endif %}>no</option>
+      </select>
+      {% elif field.type == "textarea" %}
+      <textarea name="value_{{ field.field_id }}" required>{{ field.proposed or "" }}</textarea>
+      {% else %}
+      <input type="text" name="value_{{ field.field_id }}" value="{{ field.proposed or "" }}" size="40" required>
+      {% endif %}
+      {% if field.label %}
+      <label class="small"><input type="checkbox" name="bank_{{ field.field_id }}" value="1">
+        Save for future applications</label>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <button class="primary">Save answers and fill them</button>
+  </form>
+  {% elif blocker.status == "answered" %}
+  <p class="small muted">Answered {{ blocker.answered_at }}:
+    {% for action in view.agreed %}{{ action.field_id }} = {{ action.value }}{% if not loop.last %}, {% endif %}{% endfor %}
+  </p>
+  <form class="inline" method="post" action="/blockers/{{ blocker.id }}/execute">
+    <button class="primary">Fill the answers now</button>
+  </form>
+  {% endif %}
+
+  {% if blocker.status in ("open", "answered") %}
+  <form class="inline" method="post" action="/blockers/{{ blocker.id }}/resolve">
+    <button>
+      {% if blocker.kind == "resume_approval" %}Approve resume and resolve
+      {% elif blocker.kind == "submit_approval" %}Approve submission and resolve
+      {% else %}Mark resolved by hand{% endif %}
+    </button>
+  </form>
+  {% endif %}
+</div>

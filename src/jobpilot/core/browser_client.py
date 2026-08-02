@@ -78,6 +78,11 @@ class BrowserClient:
             json={"fields": fields, "selector_map": selector_map},
         ).json()
 
+    def crop(self, job_id: int, descriptor: dict) -> bytes:
+        return self._request(
+            "POST", f"/tabs/{job_id}/crop", json={"descriptor": descriptor}
+        ).content
+
     def page_state(self, job_id: int) -> dict:
         return self._request("GET", f"/tabs/{job_id}/page").json()
 

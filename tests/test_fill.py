@@ -73,6 +73,9 @@ class FakeFillClient:
     def screenshot(self, job_id, selector=None):
         return b"\x89PNG fake-shot"
 
+    def crop(self, job_id, descriptor):
+        return b"\x89PNG fake-crop"
+
     def page_state(self, job_id):
         return {"url": "https://example.com/done", "title": self.page_title}
 

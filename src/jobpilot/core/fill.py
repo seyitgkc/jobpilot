@@ -290,22 +290,41 @@ def apply_mapping(
         specs = []
         for item in needs_owner:
             form_field = schema.by_id(item.field_id)
-            specs.append(
-                {
-                    "field_id": item.field_id,
-                    "label": form_field.label if form_field else None,
-                    "type": form_field.type if form_field else None,
-                    "options": form_field.options if form_field else [],
-                    "required": form_field.required if form_field else False,
-                    "reason": item.reason,
-                    "proposed": item.proposed,
-                }
-            )
+            spec = {
+                "field_id": item.field_id,
+                "label": form_field.label if form_field else None,
+                "type": form_field.type if form_field else None,
+                "options": form_field.options if form_field else [],
+                "maxlen": form_field.maxlen if form_field else None,
+                "required": form_field.required if form_field else False,
+                "reason": item.reason,
+                "proposed": item.proposed,
+            }
+            descriptor = selector_map.get(item.field_id)
+            if descriptor is not None:
+                try:
+                    image = client.crop(job.id, descriptor)
+                    shot = artifacts.store_bytes(
+                        conn, paths, job.id, "field_screenshot",
+                        f"screenshots_field_{item.field_id}.png", image, actor,
+                    )
+                    spec["screenshot_artifact_id"] = shot.id
+                except Exception:
+                    pass
+            specs.append(spec)
         questions = "; ".join(
             f"{spec['label'] or spec['field_id']}"
             + (f" ({spec['reason']})" if spec["reason"] else "")
             for spec in specs
         )
+        page_context = {
+            "url": job.canonical_url or job.url,
+            "selectors": {
+                spec["field_id"]: selector_map[spec["field_id"]]
+                for spec in specs
+                if spec["field_id"] in selector_map
+            },
+        }
         result.blockers.append(
             blockers.raise_blocker(
                 conn, job.id, "missing_answer", actor,
@@ -314,6 +333,7 @@ def apply_mapping(
                     f"application is complete: {questions}"
                 ),
                 field_spec={"fields": specs},
+                page_context=page_context,
             )
         )
 
@@ -379,10 +399,20 @@ def apply_mapping(
         screenshot, actor,
     )
 
-    if not result.blockers:
-        repo.update_application_fill(conn, job.id, actor, filled_at=utcnow())
-        result.job = state.transition(conn, job.id, "filled", actor)
+    finalized = finalize_if_complete(conn, job.id, actor)
+    if finalized is not None:
+        result.job = finalized
     return result
+
+
+def finalize_if_complete(conn: sqlite3.Connection, job_id: int, actor: str) -> Job | None:
+    """Advance filling to filled once nothing is parked. Called after the
+    initial fill and again whenever a blocker resolution lands answers."""
+    job = repo.get_job(conn, job_id)
+    if job.status != "filling" or blockers.list_open(conn, job_id):
+        return None
+    repo.update_application_fill(conn, job_id, actor, filled_at=utcnow())
+    return state.transition(conn, job_id, "filled", actor)
 
 
 def fill_job(

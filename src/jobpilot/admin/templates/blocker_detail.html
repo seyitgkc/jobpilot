@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Blocker {{ view.blocker.id }}, jobpilot{% endblock %}
+{% block content %}
+<h1>Blocker #{{ view.blocker.id }}</h1>
+<p class="small"><a href="/blockers">All blockers</a></p>
+{% include "_blocker.html" %}
+{% endblock %}

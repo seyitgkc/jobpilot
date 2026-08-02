@@ -58,12 +58,16 @@ textarea { width: 100%; min-height: 3.2rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1.2rem; }
 ul.plain { list-style: none; padding-left: 0; margin: 0.3rem 0; }
 ul.plain li { padding: 0.15rem 0; }
+.field-row { border-top: 1px solid var(--line); padding: 0.6rem 0; }
+.field-row:first-of-type { border-top: none; }
+img.crop { display: block; max-width: 28rem; border: 1px solid var(--line); border-radius: 6px; margin: 0.4rem 0; }
 </style>
 </head>
 <body>
 <nav>
   <span class="brand">jobpilot</span>
   <a href="/">Dashboard</a>
+  <a href="/blockers">Blockers</a>
   <a href="/rules">Rules</a>
   <a href="/settings">Settings</a>
 </nav>

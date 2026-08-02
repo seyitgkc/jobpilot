@@ -13,8 +13,10 @@ from fastapi.templating import Jinja2Templates
 
 from ..config import Config, DataPaths
 from ..db import open_db
-from ..core import blockers, context, events, repo, rules, settings, state, tailor
+from ..core import blockers, context, events, repo, resolve, rules, settings, state, tailor
+from ..core.browser_client import BrowserClient, BrowserDaemonError
 from ..core.repo import NotFound
+from ..util import from_json
 
 STATUS_ORDER = (
     "captured",
@@ -36,7 +38,14 @@ STATUS_ORDER = (
 RULE_STATUS_ORDER = ("proposed", "active", "retired", "rejected")
 
 
-def create_app(config: Config, paths: DataPaths) -> FastAPI:
+def create_app(
+    config: Config, paths: DataPaths, browser_client_factory=None
+) -> FastAPI:
+    if browser_client_factory is None:
+        browser_client_factory = lambda: BrowserClient(  # noqa: E731
+            f"http://127.0.0.1:{config.browser.daemon_port}"
+        )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.conn = open_db(paths, config)
@@ -64,6 +73,25 @@ def create_app(config: Config, paths: DataPaths) -> FastAPI:
     def back_to_job(job_id: int) -> RedirectResponse:
         return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
+    def blocker_view(conn, blocker):
+        spec = from_json(blocker.field_spec) if blocker.field_spec else None
+        agreed = from_json(blocker.agreed_action) if blocker.agreed_action else None
+        try:
+            job = repo.get_job(conn, blocker.job_id)
+        except NotFound:
+            job = None
+        return {
+            "blocker": blocker,
+            "job": job,
+            "fields": (spec or {}).get("fields", []),
+            "agreed": (agreed or {}).get("actions", []),
+            "answerable": bool((spec or {}).get("fields"))
+            and blocker.kind not in ("drift", "extraction_failed"),
+        }
+
+    def message(request: Request, title: str, text: str, back: str):
+        return render(request, "message.html", title=title, text=text, back=back)
+
     @app.get("/")
     def dashboard(request: Request):
         conn = db(request)
@@ -88,6 +116,7 @@ def create_app(config: Config, paths: DataPaths) -> FastAPI:
             blocked=blocked,
             open_blockers=sum(blocked.values()),
             unassigned_mail=repo.unassigned_mail_count(conn),
+            lost_tabs=repo.jobs_with_tab_state(conn, "lost"),
         )
 
     @app.get("/jobs/{job_id}")
@@ -170,10 +199,144 @@ def create_app(config: Config, paths: DataPaths) -> FastAPI:
         conn = db(request)
         load_job(conn, job_id)
         try:
-            state.transition(conn, job_id, "abandoned", "owner")
+            resolve.abandon_job(conn, job_id, "owner")
         except state.IllegalTransition as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return back_to_job(job_id)
+
+    @app.post("/jobs/{job_id}/replay")
+    def replay(request: Request, job_id: int):
+        conn = db(request)
+        job = load_job(conn, job_id)
+        try:
+            result = resolve.replay_tab(
+                conn, paths, config, browser_client_factory(), job_id, actor="owner"
+            )
+        except BrowserDaemonError as error:
+            return message(
+                request, "Tab not reopened",
+                f"The browser daemon did not respond ({error}). Start it with "
+                f"jobpilot-browserd and try again.",
+                f"/jobs/{job_id}",
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        if result.blockers or result.failed:
+            return back_to_job(job_id)
+        return back_to_job(job_id)
+
+    @app.get("/blockers")
+    def blockers_queue(request: Request):
+        conn = db(request)
+        views = [blocker_view(conn, blocker) for blocker in blockers.list_open(conn)]
+        return render(request, "blockers.html", views=views)
+
+    @app.get("/blockers/{blocker_id}")
+    def blocker_detail(request: Request, blocker_id: int):
+        conn = db(request)
+        try:
+            blocker = blockers.get_blocker(conn, blocker_id)
+        except NotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return render(request, "blocker_detail.html", view=blocker_view(conn, blocker))
+
+    async def _answer_from_form(request: Request, conn, blocker):
+        form = await request.form()
+        view = blocker_view(conn, blocker)
+        actions = []
+        reusable = []
+        for spec in view["fields"]:
+            field_id = spec["field_id"]
+            field_type = spec.get("type") or "text"
+            if field_type == "multiselect":
+                values = form.getlist(f"value_{field_id}")
+                if not values:
+                    raise HTTPException(
+                        status_code=400, detail=f"{field_id} needs an answer"
+                    )
+                actions.append({"verb": "select", "field_id": field_id, "value": values})
+            else:
+                raw = (form.get(f"value_{field_id}") or "").strip()
+                if not raw:
+                    raise HTTPException(
+                        status_code=400, detail=f"{field_id} needs an answer"
+                    )
+                if field_type == "checkbox":
+                    actions.append(
+                        {"verb": "check", "field_id": field_id, "value": raw == "yes"}
+                    )
+                elif field_type in ("select", "radio"):
+                    actions.append({"verb": "select", "field_id": field_id, "value": raw})
+                else:
+                    actions.append({"verb": "set", "field_id": field_id, "value": raw})
+            if form.get(f"bank_{field_id}"):
+                reusable.append(field_id)
+        return actions, tuple(reusable)
+
+    def _execute(request: Request, conn, blocker_id: int):
+        try:
+            result = resolve.execute_blocker(
+                conn, paths, config, browser_client_factory(), blocker_id, actor="owner"
+            )
+        except BrowserDaemonError as error:
+            return message(
+                request, "Answers saved",
+                f"The answers are recorded, but nothing was filled because the "
+                f"browser did not respond ({error}). Start jobpilot-browserd "
+                f"or reopen the tab, then use the fill button on the blocker.",
+                "/blockers",
+            )
+        if result.drift is not None:
+            return RedirectResponse(f"/blockers/{result.drift.id}", status_code=303)
+        if result.failed:
+            failed = ", ".join(outcome["field_id"] for outcome in result.failed)
+            return message(
+                request, "Some fields were not filled",
+                f"These fields did not take the value: {failed}. The answers "
+                f"are recorded; check the tab and retry the fill.",
+                f"/blockers/{blocker_id}",
+            )
+        return RedirectResponse("/blockers", status_code=303)
+
+    @app.post("/blockers/{blocker_id}/answer")
+    async def answer_blocker_route(request: Request, blocker_id: int):
+        conn = db(request)
+        try:
+            blocker = blockers.get_blocker(conn, blocker_id)
+        except NotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        actions, reusable = await _answer_from_form(request, conn, blocker)
+        try:
+            resolve.answer_blocker(conn, blocker_id, actions, "owner", reusable)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return _execute(request, conn, blocker_id)
+
+    @app.post("/blockers/{blocker_id}/execute")
+    def execute_blocker_route(request: Request, blocker_id: int):
+        conn = db(request)
+        try:
+            blockers.get_blocker(conn, blocker_id)
+        except NotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return _execute(request, conn, blocker_id)
+
+    @app.post("/blockers/{blocker_id}/resolve")
+    def resolve_blocker_route(request: Request, blocker_id: int):
+        conn = db(request)
+        try:
+            blocker = blockers.get_blocker(conn, blocker_id)
+        except NotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        try:
+            if blocker.kind == "resume_approval":
+                state.approve_resume(conn, blocker.job_id, "owner")
+            elif blocker.kind == "submit_approval":
+                state.approve_submit(conn, blocker.job_id, "owner")
+            resolve.mark_manual_resolved(conn, blocker_id, "owner")
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return RedirectResponse("/blockers", status_code=303)
 
     @app.get("/rules")
     def rules_page(request: Request):

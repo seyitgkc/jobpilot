@@ -195,6 +195,10 @@ class BrowserDaemon:
         page = self._page(job_id)
         return await verbs.validate_fields(page, fields, selector_map)
 
+    async def crop(self, job_id: int, descriptor: dict) -> bytes:
+        page = self._page(job_id)
+        return await verbs.crop(page, descriptor)
+
     async def page_state(self, job_id: int) -> dict:
         page = self._page(job_id)
         return {"url": page.url, "title": await page.title()}

@@ -103,3 +103,51 @@ def open_counts(conn: sqlite3.Connection) -> dict[int, int]:
         " WHERE status IN ('open', 'answered') GROUP BY job_id"
     )
     return {row["job_id"]: row["n"] for row in rows}
+
+
+STATUSES = frozenset({"open", "answered", "executing", "resolved", "abandoned"})
+
+
+def set_status(
+    conn: sqlite3.Connection,
+    blocker_id: int,
+    status: str,
+    actor: str,
+    *,
+    agreed_action: dict | None = None,
+    answer_reusable: bool | None = None,
+) -> Blocker:
+    if status not in STATUSES:
+        raise ValueError(f"unknown blocker status {status!r}")
+    blocker = get_blocker(conn, blocker_id)
+    now = utcnow()
+    with conn:
+        conn.execute(
+            "UPDATE blocker SET status = ?,"
+            " agreed_action = COALESCE(?, agreed_action),"
+            " answer_reusable = COALESCE(?, answer_reusable),"
+            " answered_at = CASE WHEN ? = 'answered' THEN ? ELSE answered_at END,"
+            " resolved_at = CASE WHEN ? IN ('resolved', 'abandoned') THEN ?"
+            "   ELSE resolved_at END"
+            " WHERE id = ?",
+            (
+                status,
+                to_json(agreed_action),
+                None if answer_reusable is None else int(answer_reusable),
+                status, now, status, now, blocker_id,
+            ),
+        )
+        events.append(
+            conn, actor=actor, kind="blocker_status_changed", job_id=blocker.job_id,
+            payload={"blocker_id": blocker_id, "from": blocker.status, "to": status},
+        )
+    return get_blocker(conn, blocker_id)
+
+
+def abandon_open(conn: sqlite3.Connection, job_id: int, actor: str) -> int:
+    """Abandon every open blocker on a job; used when the job itself is
+    abandoned."""
+    open_blockers = list_open(conn, job_id)
+    for blocker in open_blockers:
+        set_status(conn, blocker.id, "abandoned", actor)
+    return len(open_blockers)

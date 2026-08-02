@@ -35,6 +35,10 @@ class ValidateRequest(BaseModel):
     selector_map: dict
 
 
+class CropRequest(BaseModel):
+    descriptor: dict
+
+
 def create_app(config: Config, paths: DataPaths, headless: bool = False) -> FastAPI:
     daemon = BrowserDaemon(config, paths, headless=headless)
 
@@ -120,6 +124,14 @@ def create_app(config: Config, paths: DataPaths, headless: bool = False) -> Fast
             return await daemon.validate(job_id, request.fields, request.selector_map)
         except Exception as error:
             raise translate(error) from error
+
+    @app.post("/tabs/{job_id}/crop")
+    async def crop(job_id: int, request: CropRequest) -> Response:
+        try:
+            image = await daemon.crop(job_id, request.descriptor)
+        except Exception as error:
+            raise translate(error) from error
+        return Response(content=image, media_type="image/png")
 
     @app.get("/tabs/{job_id}/page")
     async def page_state(job_id: int) -> dict:

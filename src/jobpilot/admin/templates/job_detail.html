@@ -65,13 +65,14 @@
 {% if open_blockers %}
 <h2>Open blockers</h2>
 <table>
-  <tr><th>Kind</th><th>Question</th><th>Status</th><th>Raised</th></tr>
+  <tr><th>Kind</th><th>Question</th><th>Status</th><th>Raised</th><th></th></tr>
   {% for blocker in open_blockers %}
   <tr>
     <td>{{ blocker.kind|human }}</td>
     <td>{{ blocker.question or "" }}</td>
     <td>{{ blocker.status }}</td>
     <td class="muted small">{{ blocker.raised_at }}</td>
+    <td><a href="/blockers/{{ blocker.id }}">Resolve</a></td>
   </tr>
   {% endfor %}
 </table>
