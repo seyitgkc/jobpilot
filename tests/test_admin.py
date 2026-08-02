@@ -335,6 +335,58 @@ def test_capture_daemon_down_message(paths):
         assert "jobpilot-browserd" in response.text
 
 
+def test_credentials_add_list_delete(web):
+    client, conn = web
+    page = client.get("/credentials")
+    assert "No login details saved" in page.text
+
+    response = client.post(
+        "/credentials",
+        data={
+            "scope_type": "domain",
+            "scope_value": "acme.wd5.myworkdayjobs.com",
+            "username": "jamie@example.com",
+            "password": "hunter2",
+            "note": "workday tenant",
+        },
+    )
+    assert response.status_code == 303
+
+    page = client.get("/credentials")
+    assert "domain:acme.wd5.myworkdayjobs.com" in page.text
+    assert "jamie@example.com" in page.text
+    assert "hunter2" not in page.text
+    assert "********" in page.text
+
+    from jobpilot.core import credentials as credentials_module
+
+    entry = credentials_module.list_credentials(conn)[0]
+    assert client.post(f"/credentials/{entry['id']}/delete").status_code == 303
+    assert credentials_module.list_credentials(conn) == []
+    assert client.post("/credentials/999/delete").status_code == 404
+
+
+def test_credentials_validation_and_prefill(web, paths):
+    client, conn = web
+    bad = client.post(
+        "/credentials",
+        data={"scope_type": "job", "scope_value": "abc", "username": "u", "password": "p"},
+    )
+    assert bad.status_code == 400
+
+    job = seed_job(conn, paths)
+    detail = client.get(f"/jobs/{job.id}")
+    assert f"/credentials?prefill=job:{job.id}" in detail.text
+    page = client.get(f"/credentials?prefill=job:{job.id}")
+    assert f'value="{job.id}"' in page.text
+
+
+def test_dashboard_keeps_cli_hint(web):
+    client, _conn = web
+    page = client.get("/")
+    assert "jobpilot capture" in page.text
+
+
 def test_settings_page_and_gate_toggle(web):
     client, conn = web
     page = client.get("/settings")

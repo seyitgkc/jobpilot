@@ -68,6 +68,22 @@ def list_credentials(conn: sqlite3.Connection) -> list[dict]:
     ]
 
 
+def delete_credential(conn: sqlite3.Connection, credential_id: int, actor: str) -> None:
+    row = conn.execute(
+        "SELECT scope FROM credential WHERE id = ?", (credential_id,)
+    ).fetchone()
+    if row is None:
+        from .repo import NotFound
+
+        raise NotFound(f"credential {credential_id}")
+    with conn:
+        conn.execute("DELETE FROM credential WHERE id = ?", (credential_id,))
+        events.append(
+            conn, actor=actor, kind="credential_deleted",
+            payload={"scope": row["scope"]},
+        )
+
+
 def get_credential(conn: sqlite3.Connection, scope: str) -> dict | None:
     """The unmasked credential for internal fill use; callers redact."""
     row = conn.execute(

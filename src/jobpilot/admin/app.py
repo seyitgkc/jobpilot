@@ -13,7 +13,20 @@ from fastapi.templating import Jinja2Templates
 
 from ..config import Config, DataPaths
 from ..db import open_db
-from ..core import blockers, capture, context, events, mail, repo, resolve, rules, settings, state, tailor
+from ..core import (
+    blockers,
+    capture,
+    context,
+    credentials,
+    events,
+    mail,
+    repo,
+    resolve,
+    rules,
+    settings,
+    state,
+    tailor,
+)
 from ..core.browser_client import BrowserClient, BrowserDaemonError
 from ..core.repo import NotFound
 from ..util import from_json
@@ -433,6 +446,55 @@ def create_app(
         except (ValueError, NotFound, rules.NotFound) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return RedirectResponse("/rules", status_code=303)
+
+    @app.get("/credentials")
+    def credentials_page(request: Request, prefill: str = ""):
+        conn = db(request)
+        prefill_type, prefill_value = "domain", ""
+        if ":" in prefill:
+            head, _, tail = prefill.partition(":")
+            if head in ("job", "company", "domain"):
+                prefill_type, prefill_value = head, tail
+        return render(
+            request,
+            "credentials.html",
+            entries=credentials.list_credentials(conn),
+            prefill_type=prefill_type,
+            prefill_value=prefill_value,
+        )
+
+    @app.post("/credentials")
+    def credential_add(
+        request: Request,
+        scope_type: str = Form(...),
+        scope_value: str = Form(...),
+        username: str = Form(...),
+        password: str = Form(...),
+        note: str = Form(""),
+    ):
+        conn = db(request)
+        scope_value = scope_value.strip()
+        if scope_type not in ("job", "company", "domain") or not scope_value:
+            raise HTTPException(status_code=400, detail="pick a scope and value")
+        if scope_type == "job" and not scope_value.isdigit():
+            raise HTTPException(status_code=400, detail="job scope takes the job number")
+        try:
+            credentials.set_credential(
+                conn, f"{scope_type}:{scope_value}", username, password, "owner",
+                note=note.strip() or None,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return RedirectResponse("/credentials", status_code=303)
+
+    @app.post("/credentials/{credential_id}/delete")
+    def credential_delete(request: Request, credential_id: int):
+        conn = db(request)
+        try:
+            credentials.delete_credential(conn, credential_id, "owner")
+        except NotFound as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return RedirectResponse("/credentials", status_code=303)
 
     @app.get("/settings")
     def settings_page(request: Request):

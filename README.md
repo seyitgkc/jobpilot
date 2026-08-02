@@ -9,52 +9,97 @@ are frontends over that record.
 
 The full design is in [spec.md](spec.md).
 
-## Layout
+## Setup
 
-- `src/jobpilot/core/` holds all business logic; other packages are thin
-  adapters over it.
-- `src/jobpilot/migrations/` holds numbered SQL files applied in order at
-  startup.
-- Runtime data (database, browser profile, artifacts, mail archive) lives
-  under `data/`, which stays out of git.
+Requires Python 3.11 or newer and a TeX distribution for PDF builds.
 
-## Running
+```
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+.venv/bin/playwright install chromium
+```
 
-Start the browser daemon, which owns the single visible Chromium window:
+Copy `config.example.toml` to `config.toml` and edit; set `paths.data_root`
+to an absolute path so every process finds the same data regardless of where
+it starts. Secrets never go in the file: the IMAP password is read from the
+environment variable named in `mail.imap_pass_env`, or from the macOS
+keychain when that variable is unset.
+
+TeX, if not already installed:
+
+```
+brew install --cask basictex
+```
+
+```
+sudo /Library/TeX/texbin/tlmgr update --self
+```
+
+```
+sudo /Library/TeX/texbin/tlmgr install latexmk titlesec marvosym enumitem preprint needspace
+```
+
+The resume master lives in `data/resume_master/`: `facts.yaml` is the fact
+base every tailored resume draws from, and an optional `template.tex.j2`
+there overrides the built-in layout.
+
+## Processes
+
+Each process runs independently and none needs the others to stay alive.
+They share state through the database, so start only what the moment needs.
 
 ```
 jobpilot-browserd
 ```
 
-Then capture a posting:
+The browser daemon owns the single visible Chromium window. Required for
+capturing postings and filling forms; everything else works without it.
+
+```
+jobpilot-admin
+```
+
+The panel at `http://127.0.0.1:8378`: capture postings, job pages with
+timeline and artifacts, the resume review with approve, the blocker resolve
+queue, unassigned mail with assignment, rules with the propose and accept
+flow, login details for application sites, and settings.
+
+```
+jobpilot-worker
+```
+
+Background mail: polls IMAP on the configured interval, matches and
+classifies messages, advances application statuses, and sends a summary
+reminder when blockers sit unanswered. Chat sessions can run the same sync
+on demand, so the worker is optional.
+
+The MCP server (`jobpilot-mcp`) is not started by hand; the chat client
+launches it per session.
+
+## Applying
+
+Capture first, always; postings vanish. From the panel's capture form, from
+chat by pasting the posting URL, or from the terminal:
 
 ```
 jobpilot capture https://boards.greenhouse.io/company/jobs/123456
 ```
 
 Capture archives the rendered page as single-file HTML and PDF, extracts the
-posting text to markdown, detects the board, and creates the job row. Workday
-postings are marked for manual application and parked behind a blocker.
-
-Tailor a resume against a captured job:
+posting text, detects the board and requisition id, and creates the job.
+Workday postings are marked for manual application and parked behind a
+blocker.
 
 ```
 jobpilot tailor 1
 ```
 
-Tailoring reads the fact base at `data/resume_master/facts.yaml`, produces a
-plan, validates every rendered line against its master fact (no new
-entities, unchanged numbers and dates, bounded paraphrase, owner rules
-enforced), renders LaTeX, and compiles the PDF with latexmk. Rejections get
-one repair round and then park behind a blocker.
-
-The plan can come from two places. The CLI and worker use the configured AI
-provider, which needs an API key. A Claude session driving the system over
-MCP is itself the model: it reads the tailoring inputs (`tailor_context`),
-authors the plan, and submits it (`apply_plan`); core validates and persists
-identically, and no API key is involved on that path.
-
-Fill the application form, then submit it:
+Tailoring produces a plan against the fact base, validates every rendered
+line mechanically (no new entities, unchanged numbers and dates, bounded
+paraphrase, owner rules enforced), renders LaTeX, and compiles the PDF.
+Rejections get one repair round and then park behind a blocker. The plan
+comes from the configured AI provider (needs `ANTHROPIC_API_KEY`) or from a
+chat session authoring it directly, which needs no key.
 
 ```
 jobpilot fill 1
@@ -64,50 +109,59 @@ jobpilot fill 1
 jobpilot submit 1
 ```
 
-Filling reads the form before touching it: the schema comes from the board's
-JSON endpoint when one exists (Greenhouse) or a scan of the rendered page,
-selectors resolve through labels and roles with CSS as a last resort, and
-required controls that cannot be located park the job before anything is
-typed. Mapped answers come from the answer bank and the resume profile; the
-only DOM mutations anywhere are the constrained verbs (set, select, check,
-upload, click on mapped buttons), each recorded as a per-field checkpoint
-with read-back verification. Fields the owner must decide become one batched
-blocker while everything resolvable is filled. Both approval gates default
-on: filling waits for the resume review and submitting waits for your
-approval, so the resting posture is a filled application parked in its tab.
-The same two-path split as tailoring applies: `fill_context` plus
-`apply_mapping` serve a session authoring the mapping itself, with no API
-key.
-Building the PDF requires a TeX installation with `latexmk` and `pdflatex` on
-PATH; without one the plan and .tex source are still produced.
+Filling reads the form before touching it, resolves selectors, maps answers
+from the answer bank and resume profile, applies them with the constrained
+verb set under per-field checkpoints, and batches anything needing you into
+one blocker. Both approval gates default on: filling waits for the resume
+review and submitting waits for your approval, so the resting posture is a
+filled application parked in its tab. Forms behind a login use the saved
+login details for the job, company, or domain; add them on the panel's
+login details page.
+
+```
+jobpilot corpus-check
+```
+
+Replays form extraction over every archived posting page and reports drift
+against the schema each application was filled with, so board markup changes
+show up before they cost an application.
+
+## Mail
+
+Set `mail.imap_host` and `mail.imap_user` in `config.toml`. For iCloud:
+host `imap.mail.me.com`, user is the primary iCloud address (custom-domain
+mail arrives in the same mailbox), and the password is an app-specific
+password from account.apple.com. Store it in the keychain so it stays out of
+dotfiles and history:
+
+```
+security add-generic-password -s jobpilot-imap -a you@icloud.com -w
+```
+
+The first sync pulls the last 30 days and then continues incrementally.
+IMAP usage is read-only; messages are never marked, moved, or deleted.
 
 ## Chat surface
 
-The MCP server exposes the whole system to a Claude session:
+Register the MCP server once (user scope, absolute paths so any session
+directory works):
 
 ```
-claude mcp add jobpilot -- jobpilot-mcp
+claude mcp add --scope user jobpilot -e JOBPILOT_CONFIG=/absolute/path/to/config.toml -- /absolute/path/to/.venv/bin/jobpilot-mcp
 ```
 
-Every tool is a thin wrapper over the same core calls the panel makes, so an
-action taken in chat and the same action taken in the panel write the same
-rows. Tailoring and field mapping have context and submit pairs; the session
-reads the inputs, authors the plan or mapping itself, and core validates
-mechanically, which is why chat-driven runs need no API key. The judgment
-layer lives in [skills/jobpilot/SKILL.md](skills/jobpilot/SKILL.md); install
-it next to the server so the session follows the pipeline order, the blocker
-contract, and the context hygiene rules.
+Install the skill by linking it into the user skills directory:
 
-## Panel, worker, and mail
+```
+ln -s /absolute/path/to/repo/skills/jobpilot ~/.claude/skills/jobpilot
+```
 
-`jobpilot-admin` serves the panel on `127.0.0.1:8378`: dashboard, job pages,
-the resume review, the blocker resolve queue, unassigned mail, rules, and
-settings. `jobpilot-worker` polls the configured IMAP account on an
-interval, matches messages to jobs (requisition id first, then mail threads,
-then a scored heuristic with an unassigned queue for the rest), classifies
-them, advances application statuses, and sends a summary reminder when
-blockers sit unanswered. Notifications go through ntfy or local mail when
-configured; every one links into the panel.
+Every tool is a thin wrapper over the same core calls the panel makes.
+Tailoring, field mapping, and mail classification have context and submit
+pairs: the session reads the inputs, authors the output itself, and core
+validates mechanically, so chat-driven runs need no API key. The skill
+carries the judgment layer: pipeline order, the blocker contract, banking
+policy, and context hygiene.
 
 ## Checks
 
@@ -119,24 +173,11 @@ make test
 make corpus-check
 ```
 
-The corpus check replays form extraction over every archived posting page
-and reports drift against the schema each application was actually filled
-with, so board markup changes show up before they cost an application.
-
 ## Development
 
-Requires Python 3.11 or newer.
-
-```
-python3 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
-.venv/bin/playwright install chromium
-.venv/bin/pytest
-```
-
-The browser tests use a headless Chromium against a local fixture site and
-skip themselves when no Chromium build is installed.
-
-Copy `config.example.toml` to `config.toml` to override defaults. Secrets are
-read from environment variables named in the config, never from the file
-itself.
+Layout: `src/jobpilot/core/` holds all business logic; `browserd/`,
+`admin/`, `mcp/`, and `worker/` are thin surfaces over it. Migrations are
+numbered SQL files in `src/jobpilot/migrations/` applied at startup. Runtime
+data stays under `data/`, out of git. The browser tests use a headless
+Chromium against a local fixture site and skip themselves when no Chromium
+build is installed; one LaTeX compile test skips without TeX.

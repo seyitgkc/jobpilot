@@ -13,6 +13,7 @@
 <p class="small">
   <a href="{{ job.canonical_url or job.url }}">Posting</a>
   {% if has_glance %} &middot; <a href="/jobs/{{ job.id }}/glance">Resume review</a>{% endif %}
+  &middot; <a href="/credentials?prefill=job:{{ job.id }}">Login details</a>
 </p>
 
 <div class="grid">
