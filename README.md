@@ -43,6 +43,17 @@ The resume master lives in `data/resume_master/`: `facts.yaml` is the fact
 base every tailored resume draws from, and an optional `template.tex.j2`
 there overrides the built-in layout.
 
+The commands live in the project virtualenv. To run them from any terminal
+without activating it, drop shims onto the PATH (adjust the repo path):
+
+```
+for name in jobpilot jobpilot-browserd jobpilot-admin jobpilot-worker; do
+  printf '#!/bin/sh\nexport JOBPILOT_CONFIG="${JOBPILOT_CONFIG:-%s/config.toml}"\nexec %s/.venv/bin/%s "$@"\n' \
+    "$HOME/projects/jobpilot" "$HOME/projects/jobpilot" "$name" > /opt/homebrew/bin/$name
+  chmod +x /opt/homebrew/bin/$name
+done
+```
+
 ## Processes
 
 Each process runs independently and none needs the others to stay alive.
