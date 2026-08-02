@@ -99,11 +99,13 @@ def apply_plan(
     job_id: int,
     plan: TailorPlan,
     actor: str = "claude",
-    compile_fn=latex.compile_tex,
+    compile_fn=None,
 ) -> TailorResult:
     """Validate and build a plan supplied by the caller. Failures come back
     as data (report plus error), never as blockers: the submitting session
     owns the judgment about repairing, retrying, or parking the job."""
+    if compile_fn is None:
+        compile_fn = latex.compile_tex
     job = repo.get_job(conn, job_id)
     result = TailorResult(job=job, plan=plan)
     facts = resume.load_facts(paths)
@@ -171,8 +173,10 @@ def tailor_job(
     job_id: int,
     actor: str = "claude",
     notes: str | None = None,
-    compile_fn=latex.compile_tex,
+    compile_fn=None,
 ) -> TailorResult:
+    if compile_fn is None:
+        compile_fn = latex.compile_tex
     job = repo.get_job(conn, job_id)
     result = TailorResult(job=job)
     posting = _posting_markdown(conn, paths, job_id)

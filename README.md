@@ -81,6 +81,23 @@ key.
 Building the PDF requires a TeX installation with `latexmk` and `pdflatex` on
 PATH; without one the plan and .tex source are still produced.
 
+## Chat surface
+
+The MCP server exposes the whole system to a Claude session:
+
+```
+claude mcp add jobpilot -- jobpilot-mcp
+```
+
+Every tool is a thin wrapper over the same core calls the panel makes, so an
+action taken in chat and the same action taken in the panel write the same
+rows. Tailoring and field mapping have context and submit pairs; the session
+reads the inputs, authors the plan or mapping itself, and core validates
+mechanically, which is why chat-driven runs need no API key. The judgment
+layer lives in [skills/jobpilot/SKILL.md](skills/jobpilot/SKILL.md); install
+it next to the server so the session follows the pipeline order, the blocker
+contract, and the context hygiene rules.
+
 ## Development
 
 Requires Python 3.11 or newer.
