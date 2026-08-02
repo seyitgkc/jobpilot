@@ -189,6 +189,69 @@ def test_retailor_keeps_status_and_updates_links(conn, paths, job):
     assert second.artifacts["resume_pdf"].id != first.artifacts["resume_pdf"].id
 
 
+def test_tailor_context_exposes_provider_inputs(conn, paths, job):
+    rules.add_owner_rule(conn, "style", "tailoring", "no first-person in bullets")
+    context = tailor.tailor_context(conn, paths, Config(), job.id, notes="infra focus")
+    assert context["facts"].profile.name == "Jamie Doe"
+    assert "Platform Engineer" in context["posting_md"]
+    assert "no first-person in bullets" in context["constraints"].rules
+    assert context["constraints"].notes == "infra focus"
+
+
+def test_apply_plan_needs_no_provider(conn, paths, job):
+    facts_loaded = resume.load_facts(paths)
+    result = tailor.apply_plan(
+        conn, paths, Config(), job.id, good_plan(facts_loaded), compile_fn=fake_compile
+    )
+    assert result.ok
+    assert result.job.status == "tailored"
+    assert set(result.artifacts) == {"tailor_plan_json", "resume_tex", "resume_pdf"}
+    application = repo.get_application(conn, job.id)
+    assert application.resume_artifact_id == result.artifacts["resume_pdf"].id
+
+
+def test_apply_plan_returns_violations_as_data(conn, paths, job):
+    facts_loaded = resume.load_facts(paths)
+    result = tailor.apply_plan(
+        conn, paths, Config(), job.id, bad_plan(facts_loaded), compile_fn=fake_compile
+    )
+    assert not result.ok
+    assert "honesty validator" in result.error
+    assert not result.report.ok
+    assert any(v.code == "entity_added" for v in result.report.violations)
+    assert result.artifacts == {}
+    assert result.blocker is None
+    assert blockers.list_open(conn, job.id) == []
+    assert repo.get_job(conn, job.id).status == "captured"
+
+
+def test_apply_plan_returns_compile_failure_as_data(conn, paths, job):
+    facts_loaded = resume.load_facts(paths)
+    result = tailor.apply_plan(
+        conn, paths, Config(), job.id, good_plan(facts_loaded),
+        compile_fn=FailingCompiler(1),
+    )
+    assert not result.ok
+    assert "Undefined control sequence" in result.error
+    assert result.blocker is None
+    assert paths.absolute(result.artifacts["resume_tex"].path).exists()
+    assert "resume_pdf" not in result.artifacts
+    assert repo.get_job(conn, job.id).status == "captured"
+
+
+def test_apply_plan_reports_missing_latex(conn, paths, job):
+    def no_latex(tex_path):
+        raise latex.LatexUnavailable("latexmk and pdflatex are required")
+
+    facts_loaded = resume.load_facts(paths)
+    result = tailor.apply_plan(
+        conn, paths, Config(), job.id, good_plan(facts_loaded), compile_fn=no_latex
+    )
+    assert not result.ok
+    assert "latexmk" in result.error
+    assert result.blocker is None
+
+
 def test_missing_posting_raises(conn, paths):
     write_facts(paths)
     job = repo.create_job(conn, "https://example.com/x", "claude")

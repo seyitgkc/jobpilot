@@ -42,11 +42,17 @@ Tailor a resume against a captured job:
 jobpilot tailor 1
 ```
 
-Tailoring reads the fact base at `data/resume_master/facts.yaml`, asks the
-configured AI provider for a plan, validates every rendered line against its
-master fact (no new entities, unchanged numbers and dates, bounded
-paraphrase, owner rules enforced), renders LaTeX, and compiles the PDF with
-latexmk. Rejections get one repair round and then park behind a blocker.
+Tailoring reads the fact base at `data/resume_master/facts.yaml`, produces a
+plan, validates every rendered line against its master fact (no new
+entities, unchanged numbers and dates, bounded paraphrase, owner rules
+enforced), renders LaTeX, and compiles the PDF with latexmk. Rejections get
+one repair round and then park behind a blocker.
+
+The plan can come from two places. The CLI and worker use the configured AI
+provider, which needs an API key. A Claude session driving the system over
+MCP is itself the model: it reads the tailoring inputs (`tailor_context`),
+authors the plan, and submits it (`apply_plan`); core validates and persists
+identically, and no API key is involved on that path.
 Building the PDF requires a TeX installation with `latexmk` and `pdflatex` on
 PATH; without one the plan and .tex source are still produced.
 
