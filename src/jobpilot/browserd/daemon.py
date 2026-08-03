@@ -17,6 +17,7 @@ from ..config import Config, DataPaths
 from ..db import open_db
 from ..core import events, repo, state
 from . import archive, focus, verbs
+import platform
 
 
 class TabCapReached(Exception):
@@ -49,29 +50,93 @@ class BrowserDaemon:
         self.paths.browser_profile_dir.mkdir(parents=True, exist_ok=True)
         previous = await focus.front_bundle() if self._keeps_focus() else None
         self._playwright = await async_playwright().start()
+
+        brave_executable = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+
         options = {
             "user_data_dir": str(self.paths.browser_profile_dir),
             "headless": self.headless,
             # Playwright disables Chrome's sandbox by default. This browser
             # runs third-party job-site code, so the sandbox stays on.
             "chromium_sandbox": True,
+            "channel": "chrome",
+            "executable_path": brave_executable, # Point directly to Brave
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--enable-gpu",
+                "--enable-webgl",
+                "--use-gl=angle",
+                "--use-angle=metal",
+                "--disable-brave-extension",
+                "--fingerprinting-canvas-measurements=disabled",
+                "--fingerprinting-canvas-image-data-noise=disabled",
+                "--enable-features=UserAgentClientHint"
+            ],
+            "ignore_default_args": [
+                "--enable-unsafe-swiftshader",
+                "--disable-extensions",
+                "--disable-default-apps",
+                "--disable-component-extensions-with-background-pages",
+                "--disable-field-trial-config",
+                "--use-mock-keychain"
+            ]
         }
-        channel = self.config.browser.channel
-        if channel:
-            options["channel"] = channel
-            # Ensure 'args' is inside your options dictionary or explicitly passed
-            options['args'] = options.get('args', []) + ['--disable-blink-features=AutomationControlled']
+
+        user_data_dir = options.pop('user_data_dir')
+        channel = options.get("channel", None)
 
         try:
             self._context = await self._playwright.chromium.launch_persistent_context(
+                user_data_dir,
                 **options
             )
             assert self._context is not None, "Browser context is not initialized"
 
             await self._context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
+                (() => {
+                    // 1. Hide navigator.webdriver on Prototype
+                    Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', {
+                        get: () => undefined,
+                        enumerable: true,
+                        configurable: true
+                    });
+
+                    // 2. Define standard Chrome Brands
+                    const chromeBrands = [
+                        { brand: 'Not A;Brand', version: '99' },
+                        { brand: 'Chromium', version: '151' },
+                        { brand: 'Google Chrome', version: '151' }
+                    ];
+
+                    // 3. Robust userAgentData override (Works even if Brave disabled NavigatorUAData)
+                    const mockUserAgentData = {
+                        brands: chromeBrands,
+                        mobile: false,
+                        platform: 'macOS',
+                        getHighEntropyValues: async (hints) => ({
+                            brands: chromeBrands,
+                            mobile: false,
+                            platform: 'macOS',
+                            platformVersion: '15.0.0',
+                            architecture: 'arm',
+                            bitness: '64',
+                            model: '',
+                            uaFullVersion: '151.0.0.0'
+                        }),
+                        toJSON: () => ({
+                            brands: chromeBrands,
+                            mobile: false,
+                            platform: 'macOS'
+                        })
+                    };
+
+                    // Override userAgentData directly on Navigator prototype
+                    Object.defineProperty(Navigator.prototype, 'userAgentData', {
+                        get: () => mockUserAgentData,
+                        enumerable: true,
+                        configurable: true
+                    });
+                })();
             """)
         except Exception:
             if not channel:

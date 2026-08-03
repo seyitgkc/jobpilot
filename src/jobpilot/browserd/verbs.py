@@ -113,14 +113,40 @@ async def resolve_field(page: Page, field: dict) -> dict | None:
     return None
 
 
+# Dismissing a consent banner is not submitting an application, and a
+# verification widget's hidden submit button is not one either. Both outrank
+# the real control on a naive lookup, so candidates are checked for visibility
+# and consent labels are refused outright.
+_CONSENT_LABELS = frozenset(
+    {"dismiss", "accept", "accept all", "reject all", "got it", "ok", "close"}
+)
+_SUBMIT_SELECTORS = (
+    "button[data-qa*='submit']:not(.hidden)",
+    "button[id*='submit']:not(.hidden)",
+    "button[type=submit]:not(.hidden)",
+    "input[type=submit]",
+)
+
+
+async def _visible(page: Page, descriptor: dict) -> bool:
+    try:
+        locator = _locator(page, descriptor)
+        return await locator.count() > 0 and await locator.is_visible()
+    except Exception:
+        return False
+
+
 async def resolve_submit(page: Page, submit: dict | None) -> dict | None:
     label = (submit or {}).get("label") or "Submit"
-    descriptor = {"kind": "role", "role": "button", "name": label}
-    if await _count(page, descriptor) >= 1:
-        return descriptor
-    fallback = {"kind": "css", "selector": "button[type=submit], input[type=submit]"}
-    if await _count(page, fallback) >= 1:
-        return fallback
+    candidates = []
+    if label.strip().lower() not in _CONSENT_LABELS:
+        candidates.append({"kind": "role", "role": "button", "name": label})
+    candidates.extend(
+        {"kind": "css", "selector": selector} for selector in _SUBMIT_SELECTORS
+    )
+    for descriptor in candidates:
+        if await _visible(page, descriptor):
+            return descriptor
     return None
 
 

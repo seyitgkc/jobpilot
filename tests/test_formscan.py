@@ -84,6 +84,49 @@ def test_scan_button_element():
     assert schema.submit_button.label == "Apply now"
 
 
+def test_consent_banner_does_not_become_the_submit_button():
+    # The banner's dismiss control sits above the form and used to win on
+    # document order, and the verification widget's own submit button is
+    # hidden. The real control carries type=button because the board submits
+    # from JS.
+    schema = formscan.scan(
+        """
+        <div class="cc-window">
+          <button class="button button-sm cc-btn cc-dismiss" href="#">Dismiss</button>
+        </div>
+        <form>
+          <label for="fn">First name</label><input id="fn" name="first_name">
+          <button class="hidden" id="hcaptchaSubmitBtn" type="submit"></button>
+          <button data-qa="btn-submit" id="btn-submit" type="button">
+            Submit application
+          </button>
+        </form>
+        """
+    )
+    assert schema.submit_button is not None
+    assert schema.submit_button.label == "Submit application"
+
+
+def test_honeypot_fields_are_not_offered_for_filling():
+    schema = formscan.scan(
+        """
+        <form>
+          <label for="fn">First name</label><input id="fn" name="first_name">
+          <input name="honeypot" aria-label="Leave this empty">
+          <input name="bot-field" aria-label="Bot field">
+          <div style="display:none">
+            <label for="h1">Company URL</label><input id="h1" name="company_url">
+          </div>
+          <div style="position:absolute; left:-9999px">
+            <label for="h2">Fax</label><input id="h2" name="fax">
+          </div>
+          <input name="nickname" style="opacity:0" aria-label="Nickname">
+        </form>
+        """
+    )
+    assert [field.field_id for field in schema.fields] == ["first_name"]
+
+
 def test_combobox_widgets_scan_as_selects():
     schema = formscan.scan(
         """

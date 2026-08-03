@@ -27,6 +27,69 @@ _TEXT_TYPES = {
 
 _SKIP_INPUT_TYPES = {"hidden", "submit", "button", "image", "reset"}
 
+# Consent banners sit above the form in the DOM and their dismiss control is
+# often the first button on the page, so it wins any document-order scan.
+_CONSENT_MARKERS = ("cc-btn", "cc-dismiss", "cookie", "consent", "gdpr")
+_SUBMIT_TEXT = re.compile(r"\b(submit|send application)\b", re.I)
+
+
+def _is_consent_control(node: Tag) -> bool:
+    tokens = " ".join(node.get("class") or []) + " " + (node.get("id") or "")
+    return any(marker in tokens.lower() for marker in _CONSENT_MARKERS)
+
+
+def _is_hidden(node: Tag) -> bool:
+    if node.has_attr("hidden"):
+        return True
+    if "hidden" in [name.lower() for name in (node.get("class") or [])]:
+        return True
+    style = (node.get("style") or "").replace(" ", "").lower()
+    return "display:none" in style or "visibility:hidden" in style
+
+
+# A honeypot is a field a person cannot see and therefore never fills, so
+# filling it identifies the filler as automated. Anything hidden, sized to
+# nothing, or parked off the canvas is left alone, along with the field names
+# the common form libraries use as bait.
+_HONEYPOT_NAMES = (
+    "honeypot", "honey-pot", "hp-field", "bot-field", "botfield",
+    "_gotcha", "do-not-fill", "donotfill", "leaveblank", "leave-blank",
+)
+_OFFSCREEN = re.compile(r"(?:left|top|text-indent)\s*:\s*-\s*\d{3,}")
+
+
+def _is_offscreen(node: Tag) -> bool:
+    style = (node.get("style") or "").lower()
+    if _OFFSCREEN.search(style):
+        return True
+    squashed = style.replace(" ", "")
+    return any(
+        marker in squashed
+        for marker in ("opacity:0", "width:0", "height:0", "font-size:0")
+    )
+
+
+def _is_honeypot(control: Tag) -> bool:
+    identifiers = " ".join(
+        [
+            " ".join(control.get("class") or []),
+            control.get("id") or "",
+            control.get("name") or "",
+        ]
+    ).lower()
+    if any(marker in identifiers for marker in _HONEYPOT_NAMES):
+        return True
+    for node in [control, *control.parents]:
+        if not isinstance(node, Tag):
+            continue
+        if node.name in ("body", "html"):
+            break
+        if _is_hidden(node) or _is_offscreen(node):
+            return True
+        if node.get("aria-hidden") == "true":
+            return True
+    return False
+
 
 def _text(node: Tag | None) -> str | None:
     if node is None:
@@ -115,6 +178,8 @@ def scan(html: str) -> FormSchema:
             continue
         if control.has_attr("disabled") or control.get("aria-hidden") == "true":
             continue
+        if _is_honeypot(control):
+            continue
 
         label = _label_for(soup, control)
         section = _section_for(control)
@@ -195,15 +260,29 @@ def scan(html: str) -> FormSchema:
             )
         )
 
+    # Name the control before trusting its type. Boards drive submission from
+    # JS, so the real button is often type=button, while a hidden type=submit
+    # button belonging to a verification widget sits earlier in the document.
     submit = None
+    fallback = None
     for button in soup.find_all(["button", "input"]):
+        if _is_consent_control(button) or _is_hidden(button):
+            continue
         button_type = (button.get("type") or "").lower()
-        if button.name == "button" and button_type in ("submit", ""):
-            submit = FormField(field_id="submit", label=_text(button) or "Submit")
+        if button.name == "input":
+            if button_type == "submit" and fallback is None:
+                fallback = FormField(
+                    field_id="submit", label=button.get("value") or "Submit"
+                )
+            continue
+        marker = f"{button.get('data-qa') or ''} {button.get('id') or ''}"
+        text = _text(button) or ""
+        if "submit" in marker.lower() or _SUBMIT_TEXT.search(text):
+            submit = FormField(field_id="submit", label=text or "Submit")
             break
-        if button.name == "input" and button_type == "submit":
-            submit = FormField(field_id="submit", label=button.get("value") or "Submit")
-            break
+        if button_type in ("submit", "") and fallback is None:
+            fallback = FormField(field_id="submit", label=text or "Submit")
+    submit = submit or fallback
 
     return FormSchema(
         fields=fields, submit_button=submit, apply_button=_apply_control(soup)
