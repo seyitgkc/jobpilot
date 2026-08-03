@@ -249,3 +249,20 @@ def test_hidden_text_input_is_still_bait():
         "<label for='e'>Email</label><input id='e' name='email'>"
     )
     assert [field.field_id for field in schema.fields] == ["email"]
+
+
+def test_application_tab_outranks_a_header_apply_button():
+    schema = formscan.scan(
+        "<div class='header-buttons'><button class='primary'>Apply</button></div>"
+        "<div role='tablist'>"
+        "<a role='tab'>Overview</a><a role='tab'>Application</a></div>"
+    )
+    assert schema.apply_button is not None
+    assert schema.apply_button.label == "Application"
+
+
+def test_apply_button_still_wins_without_a_tab():
+    schema = formscan.scan(
+        "<h1>Role</h1><a href='/apply'>Apply for This Job</a>"
+    )
+    assert schema.apply_button.label == "Apply for This Job"

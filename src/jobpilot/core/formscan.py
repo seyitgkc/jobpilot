@@ -386,12 +386,25 @@ def _listbox_options(soup: BeautifulSoup, control: Tag) -> list[str]:
 
 
 _APPLY_WORD = re.compile(r"\bapply\b", re.IGNORECASE)
+_APPLY_TAB_WORD = re.compile(r"\bapplication\b", re.IGNORECASE)
 _APPLY_THIRD_PARTY = re.compile(r"linkedin|indeed|glassdoor", re.IGNORECASE)
 
 
 def _apply_control(soup: BeautifulSoup) -> FormField | None:
-    """The button or link that reveals the application form on posting
-    pages that gate it. Plain apply controls outrank third-party ones."""
+    """The control that reveals the application form on posting pages that
+    gate it. A tab wins when one is present: it swaps the form in on the
+    page it is already on, where a header Apply button on the same page
+    often only scrolls or leads back to the same view. Plain apply controls
+    outrank third-party ones."""
+    tabs = []
+    for control in soup.find_all(attrs={"role": "tab"}):
+        text = _text(control)
+        if text and len(text) <= 60 and _APPLY_TAB_WORD.search(text):
+            tabs.append((len(text), text))
+    if tabs:
+        tabs.sort()
+        return FormField(field_id="apply", label=tabs[0][1])
+
     candidates = []
     for control in soup.find_all(["a", "button"]):
         text = _text(control)

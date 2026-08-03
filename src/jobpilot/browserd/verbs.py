@@ -33,6 +33,8 @@ def _locator(page: Page, descriptor: dict) -> Locator:
         return locator.first
     if kind == "role":
         return page.get_by_role(descriptor["role"], name=descriptor["name"]).first
+    if kind == "text":
+        return page.get_by_text(descriptor["text"], exact=True).last
     if kind == "css":
         return page.locator(descriptor["selector"]).first
     if kind == "radio":
@@ -66,6 +68,8 @@ async def _count(page: Page, descriptor: dict) -> int:
             return await page.get_by_role(
                 descriptor["role"], name=descriptor["name"]
             ).count()
+        if kind == "text":
+            return await page.get_by_text(descriptor["text"], exact=True).count()
     except Exception:
         return 0
     return 0
@@ -187,10 +191,17 @@ async def detect_challenge(page: Page) -> dict:
 
 async def resolve_apply(page: Page, apply_control: dict | None) -> dict | None:
     label = (apply_control or {}).get("label") or "Apply"
-    for role in ("button", "link"):
+    # tab covers boards that swap the form in beside the description rather
+    # than navigating to it.
+    for role in ("button", "link", "tab"):
         descriptor = {"kind": "role", "role": role, "name": label}
         if await _count(page, descriptor) >= 1:
             return descriptor
+    # Single-page boards render the control as a styled div carrying no role
+    # the accessibility tree recognises.
+    descriptor = {"kind": "text", "text": label}
+    if await _count(page, descriptor) >= 1:
+        return descriptor
     return None
 
 
