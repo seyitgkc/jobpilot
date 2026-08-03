@@ -266,3 +266,30 @@ def test_apply_button_still_wins_without_a_tab():
         "<h1>Role</h1><a href='/apply'>Apply for This Job</a>"
     )
     assert schema.apply_button.label == "Apply for This Job"
+
+
+def test_apply_reads_as_submit_once_the_page_has_fields():
+    schema = formscan.scan(
+        "<form><label for='e'>Email</label><input id='e' name='email'>"
+        "<button class='primary'>Apply</button></form>"
+    )
+    assert schema.submit_button is not None
+    assert schema.submit_button.label == "Apply"
+
+
+def test_apply_on_a_fieldless_posting_is_still_the_gate():
+    # Extraction stops on a page with no fields either way, and the gate
+    # follow keys off the empty field list rather than the submit control.
+    schema = formscan.scan(
+        "<h1>Role</h1><button class='primary'>Apply</button>"
+    )
+    assert schema.fields == []
+    assert schema.apply_button.label == "Apply"
+
+
+def test_a_real_submit_button_outranks_apply():
+    schema = formscan.scan(
+        "<form><label for='e'>Email</label><input id='e' name='email'>"
+        "<button>Apply</button><button>Submit application</button></form>"
+    )
+    assert schema.submit_button.label == "Submit application"

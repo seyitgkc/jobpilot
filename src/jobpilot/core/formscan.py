@@ -360,6 +360,18 @@ def scan(html: str) -> FormSchema:
             break
         if button_type in ("submit", "") and fallback is None:
             fallback = FormField(field_id="submit", label=text or "Submit")
+    # A form whose send button says Apply, which only reads as the submit
+    # control once the page has fields on it. On a posting page the same word
+    # is the gate that reveals the form, so it is never the submit there.
+    if submit is None and fields:
+        for button in soup.find_all("button"):
+            if _is_consent_control(button) or _is_hidden(button):
+                continue
+            text = _text(button) or ""
+            if _APPLY_WORD.fullmatch(text.strip()):
+                submit = FormField(field_id="submit", label=text)
+                break
+
     submit = submit or fallback
 
     return FormSchema(
