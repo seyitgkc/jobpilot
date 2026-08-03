@@ -108,9 +108,16 @@ class BrowserDaemon:
                         { brand: 'Google Chrome', version: '151' }
                     ];
 
+                    // Standard Brave Client Hints (Brave reports both Chromium and Brave brands)
+                    const braveBrands = [
+                        { brand: 'Not A;Brand', version: '99' },
+                        { brand: 'Chromium', version: '131' },
+                        { brand: 'Brave', version: '131' }
+                    ];
+
                     // 3. Robust userAgentData override (Works even if Brave disabled NavigatorUAData)
                     const mockUserAgentData = {
-                        brands: chromeBrands,
+                        brands: braveBrands,
                         mobile: false,
                         platform: 'macOS',
                         getHighEntropyValues: async (hints) => ({
