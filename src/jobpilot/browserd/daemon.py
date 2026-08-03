@@ -52,6 +52,9 @@ class BrowserDaemon:
         options = {
             "user_data_dir": str(self.paths.browser_profile_dir),
             "headless": self.headless,
+            # Playwright disables Chrome's sandbox by default. This browser
+            # runs third-party job-site code, so the sandbox stays on.
+            "chromium_sandbox": True,
         }
         channel = self.config.browser.channel
         if channel:
