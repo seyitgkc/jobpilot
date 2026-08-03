@@ -125,3 +125,77 @@ def test_company_falls_back_to_slug():
     )
     assert title == "Engineer"
     assert company == "Initech Labs"
+
+
+def test_title_company_when_the_board_leads_with_the_employer():
+    # Lever writes "Company - Role", the reverse of the usual convention.
+    # The slug in the URL is what tells the two apart.
+    html = (
+        '<html><head><meta property="og:title" '
+        'content="Achievers - Intermediate Software Engineer">'
+        "</head><body></body></html>"
+    )
+    title, company = boards.extract_title_company(
+        html, boards.BoardInfo("lever", company_slug="achievers")
+    )
+    assert title == "Intermediate Software Engineer"
+    assert company == "Achievers"
+
+
+def test_apply_prefix_is_not_part_of_the_role():
+    html = (
+        '<html><head><meta property="og:title" '
+        'content="Apply to Backend Engineer at BackStretch Recruitment Group">'
+        "</head></html>"
+    )
+    title, company = boards.extract_title_company(html, boards.BoardInfo("other"))
+    assert title == "Backend Engineer"
+    assert company == "BackStretch Recruitment Group"
+
+
+def test_site_name_repeating_the_page_title_is_not_a_company():
+    html = (
+        '<html><head><meta property="og:site_name" '
+        'content="Backend Engineer in Multiple Locations | Lakeview Loan Servicing">'
+        "<title>Backend Engineer in Multiple Locations | Lakeview Loan Servicing"
+        "</title></head><body><h1>Backend Engineer</h1></body></html>"
+    )
+    title, company = boards.extract_title_company(html, boards.BoardInfo("other"))
+    assert title == "Backend Engineer"
+    assert company == "Lakeview Loan Servicing"
+
+
+def test_falls_back_to_the_posting_heading_and_the_tenant_host():
+    # A page that renders its detail through JavaScript carries nothing but a
+    # generic document title.
+    html = "<html><head><title>Careers</title></head><body></body></html>"
+    posting = (
+        "<!-- source: https://agamcapital-ecdcec.careers.hibob.com/jobs/1 -->\n\n"
+        "Software Engineer: Fullstack/backend\n\nToronto, Canada\n"
+    )
+    title, company = boards.extract_title_company(
+        html,
+        boards.BoardInfo("other"),
+        "https://agamcapital-ecdcec.careers.hibob.com/jobs/1",
+        posting,
+    )
+    assert title == "Software Engineer: Fullstack/backend"
+    assert company == "Agamcapital"
+
+
+def test_generic_document_title_does_not_become_the_role():
+    html = "<html><head><title>Careers</title></head></html>"
+    title, _ = boards.extract_title_company(html, boards.BoardInfo("other"))
+    assert title is None
+
+
+def test_board_name_in_the_page_title_is_not_the_employer():
+    # "Role - Detail - Employer - Career Page": the tail names the board, and
+    # splitting on the first separator swept the employer into the company.
+    html = (
+        "<html><head><title>Software Developer - Backend (Intermediate to "
+        "Senior) - Xanadu - Career Page</title></head></html>"
+    )
+    title, company = boards.extract_title_company(html, boards.BoardInfo("other"))
+    assert company == "Xanadu"
+    assert title == "Software Developer - Backend (Intermediate to Senior)"

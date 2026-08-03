@@ -61,7 +61,6 @@ def capture(
         if refined.board == "other" and info.board != "other":
             refined = info
         refined = boards.refine_from_html(refined, raw_html)
-        title, company = boards.extract_title_company(raw_html, refined)
 
         stored = {
             "snapshot_html": artifacts.store_text(
@@ -89,9 +88,15 @@ def capture(
                 # The main page is already archived; a missing secondary page
                 # only thins posting.md.
                 continue
+        posting_md = "\n\n".join(posting_parts)
         stored["posting_md"] = artifacts.store_text(
-            conn, paths, job.id, "posting_md", "posting.md",
-            "\n\n".join(posting_parts), actor,
+            conn, paths, job.id, "posting_md", "posting.md", posting_md, actor,
+        )
+
+        # After the markdown, so a page whose metadata never names the role can
+        # fall back to the posting's own heading.
+        title, company = boards.extract_title_company(
+            raw_html, refined, canonical_url, posting_md
         )
 
         job = repo.update_job_capture(
