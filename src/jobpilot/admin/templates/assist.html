@@ -1,36 +1,116 @@
 {% extends "base.html" %}
 {% block title %}Apply by hand, job {{ job.id }}, jobpilot{% endblock %}
 {% block content %}
+<style>
+.sheet-row { display: grid; grid-template-columns: 1fr 22rem; gap: 1rem;
+  border-top: 1px solid var(--line); padding: 0.7rem 0; align-items: start; }
+.sheet-row:first-of-type { border-top: none; }
+.sheet-q { font-weight: 600; }
+.sheet-val { display: flex; gap: 0.4rem; align-items: flex-start; }
+.sheet-val pre { flex: 1; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sheet-row.waiting { background: #fbf6df; }
+.opts { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem; }
+.opt { border: 1px solid var(--line); border-radius: 999px;
+  padding: 0.05rem 0.6rem; font-size: 0.82rem; color: var(--muted); }
+.opt.pick { background: var(--accent); color: var(--accent-ink);
+  border-color: var(--accent); font-weight: 600; }
+button.copy { padding: 0.15rem 0.5rem; font-size: 0.8rem; }
+</style>
+
 <h1>Apply by hand: {{ job.title or "?" }} at {{ job.company or "?" }}</h1>
 <p class="small"><a href="/jobs/{{ job.id }}">Job</a> &middot;
   <a href="{{ job.canonical_url or job.url }}">Posting</a></p>
-<p class="muted small">For applications you fill in yourself. Everything
-jobpilot would have entered is here to copy. When the application is in,
-use Mark submitted by hand on the job page so mail tracking picks it up.</p>
+<p class="muted small">For applications you fill in yourself. Rows follow the
+order the form asks for them. When the application is in, use Mark submitted
+by hand on the job page so mail tracking picks it up.</p>
+
+<div class="chips">
+  <span class="chip"><b>{{ data.ready }}</b> ready to copy</span>
+  {% if data.waiting %}
+  <span class="chip"><b>{{ data.waiting }}</b> still need your decision</span>
+  {% endif %}
+</div>
 
 <div class="card">
   <h2>Resume</h2>
   {% if data.resume %}
-  <p><a href="/jobs/{{ job.id }}/artifacts/{{ data.resume.artifact_id }}">Download the tailored PDF</a>
-    <span class="muted small">{{ data.resume.path }}</span></p>
+  <p><a href="/jobs/{{ job.id }}/artifacts/{{ data.resume.artifact_id }}">Download the tailored PDF</a></p>
+  <div class="sheet-val">
+    <pre id="resume-path">{{ data.resume.absolute }}</pre>
+    <button class="copy" data-copy="resume-path">Copy path</button>
+  </div>
+  <p class="muted small">Paste the path into the upload dialog with
+    Shift-Command-G to skip browsing for it.</p>
   {% else %}
   <p class="muted">No tailored resume yet.</p>
   {% endif %}
 </div>
 
-<h2>Answers</h2>
-{% if data.answers %}
-<table>
-  <tr><th>Field</th><th>Value</th><th>Source</th></tr>
-  {% for row in data.answers %}
-  <tr>
-    <td>{{ row.label }}</td>
-    <td>{{ row.value }}</td>
-    <td class="muted small">{{ row.source|human }}</td>
-  </tr>
+{% for group in data.groups %}
+{% set outer = loop.index %}
+<div class="card">
+  <h2>{{ group.name or "Application" }}</h2>
+  {% for row in group.rows %}
+  <div class="sheet-row{% if row.needs_owner %} waiting{% endif %}">
+    <div>
+      <div class="sheet-q">{{ row.label }}{% if row.required %}
+        <span class="muted">*</span>{% endif %}</div>
+      <div class="muted small">
+        {{ row.type }}{% if row.maxlen %}, max {{ row.maxlen }} chars{% endif %}
+        &middot; {{ row.source|human }}
+      </div>
+      {% if row.needs_owner and row.reason %}
+      <div class="small">{{ row.reason }}</div>
+      {% endif %}
+      {% if row.options %}
+      <div class="opts">
+        {% for option in row.options %}
+        <span class="opt{% if option == row.value %} pick{% endif %}">{{ option }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <div class="sheet-val">
+      {% if row.value %}
+      <pre id="g{{ outer }}r{{ loop.index }}">{{ row.value }}</pre>
+      <button class="copy" data-copy="g{{ outer }}r{{ loop.index }}">Copy</button>
+      {% else %}
+      <span class="muted small">Nothing mapped.</span>
+      {% endif %}
+    </div>
+  </div>
   {% endfor %}
-</table>
-{% else %}
-<div class="card"><p>Nothing saved for this application yet.</p></div>
+</div>
+{% endfor %}
+
+{% if data.extra %}
+<div class="card">
+  <h2>Also on file</h2>
+  <p class="muted small">Banked answers this form did not ask for. Useful when
+  the board reveals more questions after a step.</p>
+  {% for row in data.extra %}
+  <div class="sheet-row">
+    <div class="sheet-q">{{ row.label }}</div>
+    <div class="sheet-val">
+      <pre id="x{{ loop.index }}">{{ row.value }}</pre>
+      <button class="copy" data-copy="x{{ loop.index }}">Copy</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
 {% endif %}
+
+<script>
+document.addEventListener('click', function (event) {
+  var button = event.target.closest('button.copy');
+  if (!button) return;
+  var source = document.getElementById(button.dataset.copy);
+  if (!source) return;
+  navigator.clipboard.writeText(source.textContent).then(function () {
+    var was = button.textContent;
+    button.textContent = 'Copied';
+    setTimeout(function () { button.textContent = was; }, 1200);
+  });
+});
+</script>
 {% endblock %}

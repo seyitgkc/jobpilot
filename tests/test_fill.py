@@ -441,3 +441,75 @@ def test_fill_from_wrong_status(conn, paths):
     result = fill.apply_mapping(conn, paths, Config(), client, job.id, make_mapping())
     assert result.error is not None
     assert "captured" in result.error
+
+
+ASSIST_FORM_HTML = """
+<form>
+  <label for="fn">First name</label><input id="fn" name="first_name" required>
+  <input type="hidden" name="cards[abc-123][baseTemplate]"
+    value='{"text":"Screening","fields":[{"type":"multiple-choice","text":"Are you willing to travel?"}]}'>
+  <label><input type="radio" name="cards[abc-123][field0]" value="Yes">Yes</label>
+  <label><input type="radio" name="cards[abc-123][field0]" value="No">No</label>
+  <label><input type="checkbox" name="survey[race]">Asian</label>
+  <label><input type="checkbox" name="survey[race]">Black or African American</label>
+  <label><input type="checkbox" name="survey[race]">Prefer not to disclose</label>
+  <label for="cv">Resume</label><input id="cv" name="resume" type="file">
+  <button type="submit">Submit application</button>
+</form>
+"""
+
+
+def test_assist_sheet_reads_in_form_order_with_real_questions(
+    conn, paths, tailored_job
+):
+    client = FakeFillClient(html=ASSIST_FORM_HTML)
+    assert extract(conn, paths, client, tailored_job).ok
+    state.approve_resume(conn, tailored_job.id, "owner")
+
+    sheet = fill.assist_sheet(conn, paths, tailored_job.id)
+    rows = [row for group in sheet["groups"] for row in group["rows"]]
+    labels = [row["label"] for row in rows]
+
+    # The card question reaches the owner as the question, not as its name.
+    assert "Are you willing to travel?" in labels
+    assert not any("baseTemplate" in label for label in labels)
+    assert not any(label.startswith("cards[") for label in labels)
+
+    # The resume is offered as a file to attach rather than a value to copy.
+    assert not any(row["type"] == "file" for row in rows)
+    assert sheet["resume"]["absolute"].endswith(".pdf")
+
+    # One question, three choices, instead of three questions sharing an answer.
+    survey = [row for row in rows if row["field_id"] == "survey[race]"]
+    assert len(survey) == 1
+    assert survey[0]["options"] == [
+        "Asian", "Black or African American", "Prefer not to disclose",
+    ]
+
+
+def test_assist_sheet_carries_the_proposal_for_open_decisions(
+    conn, paths, tailored_job
+):
+    client = FakeFillClient(html=ASSIST_FORM_HTML)
+    assert extract(conn, paths, client, tailored_job).ok
+    state.approve_resume(conn, tailored_job.id, "owner")
+    fill.apply_mapping(
+        conn, paths, Config(), client, tailored_job.id,
+        FieldMapping(fields=[
+            MappedField(
+                field_id="cards[abc-123][field0]", needs_owner=True,
+                proposed="Yes", reason="Travel is the owner's call.",
+            ),
+        ]),
+    )
+
+    sheet = fill.assist_sheet(conn, paths, tailored_job.id)
+    rows = {
+        row["field_id"]: row
+        for group in sheet["groups"] for row in group["rows"]
+    }
+    parked = rows["cards[abc-123][field0]"]
+    assert parked["needs_owner"]
+    assert parked["value"] == "Yes"
+    assert parked["reason"] == "Travel is the owner's call."
+    assert sheet["waiting"] == 1

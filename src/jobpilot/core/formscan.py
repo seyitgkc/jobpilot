@@ -8,6 +8,7 @@ unlabeled and the caller decides whether that blocks the fill.
 
 from __future__ import annotations
 
+import json
 import re
 
 from bs4 import BeautifulSoup, Tag
@@ -98,20 +99,45 @@ def _text(node: Tag | None) -> str | None:
     return text or None
 
 
+# Boards mark a required field with a glyph inside the label, and it reads as
+# part of the question everywhere the label is shown.
+_REQUIRED_MARK = re.compile(r"[\s*✱＊]+$")
+
+
+def _clean_label(text: str | None) -> str | None:
+    if text is None:
+        return None
+    return _REQUIRED_MARK.sub("", text).strip() or None
+
+
+def _inner_label(wrapper: Tag) -> str | None:
+    """The label's own caption, when the wrapper also holds the control's
+    chrome. Typeahead widgets park status text like 'No location found'
+    inside the label, which otherwise reads as part of the question."""
+    for node in wrapper.find_all(["div", "span", "p"]):
+        classes = " ".join(node.get("class") or []).lower()
+        if "label" in classes and not node.find(["input", "select", "textarea"]):
+            if text := _text(node):
+                return text
+    return None
+
+
 def _label_for(soup: BeautifulSoup, control: Tag) -> str | None:
     control_id = control.get("id")
     if control_id:
         label = soup.find("label", attrs={"for": control_id})
         if label is not None:
-            return _text(label)
+            return _clean_label(_text(label))
     wrapper = control.find_parent("label")
     if wrapper is not None:
+        if caption := _inner_label(wrapper):
+            return _clean_label(caption)
         clone = BeautifulSoup(str(wrapper), "html.parser")
         for inner in clone.find_all(["input", "select", "textarea"]):
             inner.decompose()
         text = " ".join(clone.get_text(" ", strip=True).split())
         if text:
-            return text
+            return _clean_label(text)
     aria = control.get("aria-label")
     if aria and aria.strip():
         return aria.strip()
@@ -127,6 +153,47 @@ def _label_for(soup: BeautifulSoup, control: Tag) -> str | None:
     if placeholder and placeholder.strip():
         return placeholder.strip()
     return None
+
+
+_CARD_TEMPLATE = re.compile(r"^cards\[([0-9a-f-]+)\]\[baseTemplate\]$", re.I)
+
+
+def _card_questions(soup: BeautifulSoup) -> tuple[dict[str, str], dict[str, str]]:
+    """Question text and card name for grouped custom questions.
+
+    Some boards render a card of custom questions as bare controls named
+    cards[uuid][fieldN] and keep the wording in a hidden input holding the
+    card definition as JSON. Reading it is the difference between asking the
+    owner about "cards[uuid][field2]" and asking them the actual question.
+    Returns question text by field id, and card name by field id.
+    """
+    questions: dict[str, str] = {}
+    sections: dict[str, str] = {}
+    for hidden in soup.find_all("input", attrs={"type": "hidden"}):
+        match = _CARD_TEMPLATE.match(hidden.get("name") or "")
+        if match is None:
+            continue
+        try:
+            payload = json.loads(hidden.get("value") or "")
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        card = match.group(1)
+        name = " ".join((payload.get("text") or "").split()) or None
+        entries = payload.get("fields")
+        if not isinstance(entries, list):
+            continue
+        for position, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                continue
+            field_id = f"cards[{card}][field{position}]"
+            text = " ".join((entry.get("text") or "").split())
+            if text:
+                questions[field_id] = text
+            if name:
+                sections[field_id] = name
+    return questions, sections
 
 
 def _section_for(control: Tag) -> str | None:
@@ -168,6 +235,7 @@ def scan(html: str) -> FormSchema:
     soup = BeautifulSoup(html, "html.parser")
     fields: list[FormField] = []
     radios: dict[str, FormField] = {}
+    card_questions, card_sections = _card_questions(soup)
     index = 0
 
     for control in soup.find_all(["input", "select", "textarea"]):
@@ -183,6 +251,11 @@ def scan(html: str) -> FormSchema:
 
         label = _label_for(soup, control)
         section = _section_for(control)
+        # On a radio, label is the option's own text, so the card question
+        # names the group and never replaces the option.
+        name = control.get("name") or ""
+        question = card_questions.get(name)
+        section = section or card_sections.get(name)
 
         if tag == "input" and input_type == "radio":
             group = control.get("name") or f"radio_{index}"
@@ -195,7 +268,7 @@ def scan(html: str) -> FormSchema:
                 continue
             field = FormField(
                 field_id=group,
-                label=_section_for(control) or None,
+                label=question or _section_for(control) or None,
                 type="radio",
                 options=[option] if option else [],
                 required=_required(control),
@@ -231,7 +304,7 @@ def scan(html: str) -> FormSchema:
         fields.append(
             FormField(
                 field_id=_field_id(control, label, index),
-                label=label,
+                label=question or label,
                 type=field_type,
                 options=options,
                 maxlen=_maxlen(control),

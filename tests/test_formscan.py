@@ -175,3 +175,60 @@ def test_scan_empty_page():
     schema = formscan.scan("<html><body><p>Nothing here</p></body></html>")
     assert schema.fields == []
     assert schema.submit_button is None
+
+
+CARD_HTML = """
+<h4>Screening</h4>
+<input type="hidden" name="cards[abc-123][baseTemplate]"
+  value='{"text":"Screening Questions","fields":[
+    {"type":"multiple-choice","text":"Are you authorized to work here?"},
+    {"type":"textarea","text":"What are your salary expectations?"}]}'>
+<label><input type="radio" name="cards[abc-123][field0]" value="Yes">Yes</label>
+<label><input type="radio" name="cards[abc-123][field0]" value="No">No</label>
+<textarea name="cards[abc-123][field1]"></textarea>
+"""
+
+
+def test_card_template_names_grouped_questions():
+    schema = formscan.scan(CARD_HTML)
+    by_id = {field.field_id: field for field in schema.fields}
+
+    choice = by_id["cards[abc-123][field0]"]
+    assert choice.label == "Are you authorized to work here?"
+    assert choice.options == ["Yes", "No"]
+    assert choice.section == "Screening Questions"
+
+    free_text = by_id["cards[abc-123][field1]"]
+    assert free_text.label == "What are your salary expectations?"
+    assert free_text.type == "textarea"
+
+
+def test_card_template_survives_unreadable_json():
+    schema = formscan.scan(
+        "<input type='hidden' name='cards[abc-123][baseTemplate]' value='{not json'>"
+        "<textarea name='cards[abc-123][field0]'></textarea>"
+    )
+    assert schema.fields[0].label is None
+
+
+def test_label_drops_required_glyph_and_widget_chrome():
+    schema = formscan.scan(
+        """
+        <li><label>
+          <div class="application-label">Current location <span class="required">✱</span></div>
+          <div class="application-field">
+            <input name="location" required>
+            <div class="dropdown-status">No location found. Try entering a
+              different location Loading</div>
+          </div>
+        </label></li>
+        """
+    )
+    field = schema.fields[0]
+    assert field.label == "Current location"
+    assert field.required
+
+
+def test_label_keeps_plain_wrapping_text():
+    schema = formscan.scan("<label>Cover letter<textarea name='cover'></textarea></label>")
+    assert schema.fields[0].label == "Cover letter"

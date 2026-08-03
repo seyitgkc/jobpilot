@@ -186,48 +186,145 @@ def extract_form(
     return result
 
 
-def assist_sheet(
-    conn: sqlite3.Connection, paths: DataPaths, job_id: int
-) -> dict:
-    """Everything needed to fill this application by hand: the resume file
-    and each answer with its label. For boards that refuse automated
-    sessions, the owner types and jobpilot supplies the content."""
+def _pending_decisions(conn: sqlite3.Connection, job_id: int) -> dict[str, dict]:
+    """Fields an open blocker is still waiting on the owner for, by field id,
+    carrying the proposal and the reason it was not answered outright."""
+    pending: dict[str, dict] = {}
+    for blocker in blockers.list_open(conn, job_id):
+        if not blocker.field_spec:
+            continue
+        try:
+            spec = from_json(blocker.field_spec)
+        except ValueError:
+            continue
+        for entry in spec.get("fields") or []:
+            if isinstance(entry, dict) and entry.get("field_id"):
+                pending[entry["field_id"]] = entry
+    return pending
+
+
+def assist_sheet(conn: sqlite3.Connection, paths: DataPaths, job_id: int) -> dict:
+    """Everything needed to fill this application by hand, in the order the
+    form asks for it. For boards that refuse automated sessions, the owner
+    types and jobpilot supplies the content, so a row carries the exact value
+    to enter, the control it goes into, and the options to pick between."""
     job = repo.get_job(conn, job_id)
     application = repo.get_application(conn, job_id)
-    rows: list[dict] = []
-    seen: set[str] = set()
+    pending = _pending_decisions(conn, job_id)
 
+    schema = FormSchema()
+    if application is not None and application.form_schema_artifact_id is not None:
+        artifact = repo.get_artifact(conn, application.form_schema_artifact_id)
+        schema = FormSchema.model_validate(
+            from_json(paths.absolute(artifact.path).read_text())
+        )
+
+    filled: dict[str, object] = {}
     if application is not None:
         for record in repo.list_field_fills(conn, application.id):
-            label = record.field_label or record.field_id
-            if label.lower() in seen:
-                continue
-            seen.add(label.lower())
-            rows.append(
-                {
-                    "label": label,
-                    "value": record.value_redacted or "",
-                    "source": record.source or "mapped",
-                }
-            )
+            filled[record.field_id] = record
 
-    for entry in assemble_answers(conn, paths, job).entries:
-        if entry.question.lower() in seen:
+    def row_for(field: FormField) -> dict:
+        record = filled.get(field.field_id)
+        decision = pending.get(field.field_id)
+        value = getattr(record, "value_redacted", None) or ""
+        source = getattr(record, "source", None) or ""
+        if not value and decision:
+            value = decision.get("proposed") or ""
+            source = "proposed"
+        return {
+            "field_id": field.field_id,
+            "label": field.label or field.field_id,
+            "value": value,
+            "source": source or "unmapped",
+            "type": field.type,
+            "options": field.options,
+            "required": field.required,
+            "maxlen": field.maxlen,
+            "needs_owner": decision is not None,
+            "reason": (decision or {}).get("reason"),
+        }
+
+    groups: list[dict] = []
+    placed: dict[str, dict] = {}
+    for field in schema.fields:
+        if field.type == "file":
             continue
-        seen.add(entry.question.lower())
-        rows.append(
+        # A checkbox group renders one control per choice under a single
+        # name, so the choices are options of one question rather than
+        # separate questions that happen to share an answer.
+        existing = placed.get(field.field_id)
+        if existing is not None:
+            if not existing["options"]:
+                # The first control's label was read as the question; under a
+                # shared name it is really the first choice.
+                existing["options"] = [existing["label"]]
+                existing["label"] = field.section or "Select all that apply"
+            if field.label and field.label not in existing["options"]:
+                existing["options"].append(field.label)
+            continue
+        row = row_for(field)
+        placed[field.field_id] = row
+        name = field.section
+        if not groups or groups[-1]["name"] != name:
+            groups.append({"name": name, "rows": []})
+        groups[-1]["rows"].append(row)
+
+    # Anything banked that the form never asked for, so a question the board
+    # renders late or behind a step still has its answer to hand.
+    covered = {row["label"].lower() for group in groups for row in group["rows"]}
+    entered = {
+        row["value"].strip().lower()
+        for group in groups
+        for row in group["rows"]
+        if row["value"]
+    }
+    extra: list[dict] = []
+    for entry in assemble_answers(conn, paths, job).entries:
+        if entry.question.lower() in covered:
+            continue
+        if not entry.sensitive and entry.answer.strip().lower() in entered:
+            continue
+        covered.add(entry.question.lower())
+        extra.append(
             {
+                "field_id": entry.question,
                 "label": entry.question,
                 "value": "[saved privately]" if entry.sensitive else entry.answer,
                 "source": "answer bank",
+                "type": entry.answer_type,
+                "options": [],
+                "required": False,
+                "maxlen": None,
+                "needs_owner": False,
+                "reason": None,
             }
         )
 
     resume = None
     if application is not None and application.resume_artifact_id is not None:
         artifact = repo.get_artifact(conn, application.resume_artifact_id)
-        resume = {"artifact_id": artifact.id, "path": artifact.path}
-    return {"job": job, "resume": resume, "answers": rows}
+        resume = {
+            "artifact_id": artifact.id,
+            "path": artifact.path,
+            "absolute": str(paths.absolute(artifact.path).resolve()),
+        }
+    ready = sum(
+        1
+        for group in groups
+        for row in group["rows"]
+        if row["value"] and not row["needs_owner"]
+    )
+    return {
+        "job": job,
+        "resume": resume,
+        "groups": groups,
+        "extra": extra,
+        "ready": ready,
+        "waiting": sum(
+            1 for group in groups for row in group["rows"] if row["needs_owner"]
+        ),
+    }
 
 
 def fill_context(
