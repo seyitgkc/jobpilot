@@ -80,6 +80,11 @@ def _is_honeypot(control: Tag) -> bool:
     ).lower()
     if any(marker in identifiers for marker in _HONEYPOT_NAMES):
         return True
+    # A drag-and-drop upload keeps a real file input behind the styled
+    # dropzone with display:none, so invisibility alone does not make a file
+    # control bait. Bait is a text field a person would otherwise type into.
+    if control.name == "input" and (control.get("type") or "").lower() == "file":
+        return False
     for node in [control, *control.parents]:
         if not isinstance(node, Tag):
             continue

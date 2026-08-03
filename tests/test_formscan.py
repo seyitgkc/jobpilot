@@ -232,3 +232,20 @@ def test_label_drops_required_glyph_and_widget_chrome():
 def test_label_keeps_plain_wrapping_text():
     schema = formscan.scan("<label>Cover letter<textarea name='cover'></textarea></label>")
     assert schema.fields[0].label == "Cover letter"
+
+
+def test_dropzone_file_input_is_not_bait():
+    schema = formscan.scan(
+        "<div class='dnd-file-input-container'>"
+        "<input type='file' id='fileInput' style='display: none;'>"
+        "<span>Drag and drop resume/CV or Upload</span></div>"
+    )
+    assert [field.type for field in schema.fields] == ["file"]
+
+
+def test_hidden_text_input_is_still_bait():
+    schema = formscan.scan(
+        "<input type='text' name='website' style='display: none;'>"
+        "<label for='e'>Email</label><input id='e' name='email'>"
+    )
+    assert [field.field_id for field in schema.fields] == ["email"]
