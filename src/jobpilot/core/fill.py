@@ -428,7 +428,9 @@ def apply_mapping(
         result.error = "no selector map is stored; run extraction first"
         return result
 
-    if job.status == "tailored":
+    # A filled job fills again for rework: the page drifted, a value was
+    # rejected, or the tab was replaced and its values went with it.
+    if job.status in ("tailored", "filled"):
         try:
             job = state.transition(conn, job.id, "filling", actor)
             result.job = job
@@ -444,7 +446,9 @@ def apply_mapping(
             )
             return result
     elif job.status != "filling":
-        result.error = f"job is {job.status}; filling starts from tailored"
+        result.error = (
+            f"job is {job.status}; filling starts from tailored or filled"
+        )
         return result
 
     mapping = _guard_hard_rules(conn, mapping)

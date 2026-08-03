@@ -513,3 +513,56 @@ def test_assist_sheet_carries_the_proposal_for_open_decisions(
     assert parked["value"] == "Yes"
     assert parked["reason"] == "Travel is the owner's call."
     assert sheet["waiting"] == 1
+
+
+def test_filled_job_fills_again_for_rework(conn, paths, tailored_job):
+    client = FakeFillClient()
+    assert extract(conn, paths, client, tailored_job).ok
+    state.approve_resume(conn, tailored_job.id, "owner")
+    first = fill.apply_mapping(
+        conn, paths, Config(), client, tailored_job.id,
+        FieldMapping(fields=[
+            MappedField(
+                field_id="first_name", value="Jamie",
+                source="answer_bank", confidence=1.0,
+            ),
+        ]),
+    )
+    assert first.ok
+    assert repo.get_job(conn, tailored_job.id).status == "filled"
+
+    # A replaced tab loses its values, so the same job fills again.
+    second = fill.apply_mapping(
+        conn, paths, Config(), client, tailored_job.id,
+        FieldMapping(fields=[
+            MappedField(
+                field_id="first_name", value="Jamie",
+                source="answer_bank", confidence=1.0,
+            ),
+            MappedField(field_id="resume", source="resume_file", confidence=1.0),
+        ]),
+    )
+    assert second.ok, second.error
+    assert [action["field_id"] for action in client.apply_calls[-1]] == [
+        "first_name", "resume",
+    ]
+
+
+def test_submitted_job_does_not_fill_again(conn, paths, tailored_job):
+    client = FakeFillClient()
+    assert extract(conn, paths, client, tailored_job).ok
+    state.approve_resume(conn, tailored_job.id, "owner")
+    from conftest import force_status
+
+    force_status(conn, tailored_job.id, "submitted")
+    result = fill.apply_mapping(
+        conn, paths, Config(), client, tailored_job.id,
+        FieldMapping(fields=[
+            MappedField(
+                field_id="first_name", value="Jamie",
+                source="answer_bank", confidence=1.0,
+            ),
+        ]),
+    )
+    assert not result.ok
+    assert "submitted" in result.error
