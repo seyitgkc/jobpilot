@@ -186,6 +186,50 @@ def extract_form(
     return result
 
 
+def assist_sheet(
+    conn: sqlite3.Connection, paths: DataPaths, job_id: int
+) -> dict:
+    """Everything needed to fill this application by hand: the resume file
+    and each answer with its label. For boards that refuse automated
+    sessions, the owner types and jobpilot supplies the content."""
+    job = repo.get_job(conn, job_id)
+    application = repo.get_application(conn, job_id)
+    rows: list[dict] = []
+    seen: set[str] = set()
+
+    if application is not None:
+        for record in repo.list_field_fills(conn, application.id):
+            label = record.field_label or record.field_id
+            if label.lower() in seen:
+                continue
+            seen.add(label.lower())
+            rows.append(
+                {
+                    "label": label,
+                    "value": record.value_redacted or "",
+                    "source": record.source or "mapped",
+                }
+            )
+
+    for entry in assemble_answers(conn, paths, job).entries:
+        if entry.question.lower() in seen:
+            continue
+        seen.add(entry.question.lower())
+        rows.append(
+            {
+                "label": entry.question,
+                "value": "[saved privately]" if entry.sensitive else entry.answer,
+                "source": "answer bank",
+            }
+        )
+
+    resume = None
+    if application is not None and application.resume_artifact_id is not None:
+        artifact = repo.get_artifact(conn, application.resume_artifact_id)
+        resume = {"artifact_id": artifact.id, "path": artifact.path}
+    return {"job": job, "resume": resume, "answers": rows}
+
+
 def fill_context(
     conn: sqlite3.Connection, paths: DataPaths, config: Config, job_id: int
 ) -> dict:

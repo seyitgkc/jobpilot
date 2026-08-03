@@ -56,6 +56,12 @@ FORM_HTML = """<!doctype html>
   <label for="agree">I agree to the terms</label>
   <input id="agree" name="agree" type="checkbox">
   <label for="cv">Resume</label><input id="cv" name="resume" type="file">
+  <p>Are you legally entitled to work here?</p>
+  <label><input type="radio" name="entitled" value="Yes"> Yes</label>
+  <label><input type="radio" name="entitled" value="No"> No</label>
+  <p>Do you require sponsorship?</p>
+  <label><input type="radio" name="sponsorship" value="Yes"> Yes</label>
+  <label><input type="radio" name="sponsorship" value="No"> No</label>
   <span id="sen-label">Seniority level</span>
   <div id="seniority" role="combobox" aria-labelledby="sen-label"
        aria-controls="sen-list" tabindex="0">Choose one</div>
@@ -74,6 +80,14 @@ list.addEventListener("click", function (event) {
     cbx.textContent = event.target.textContent;
     list.hidden = true;
   }
+});
+document.querySelectorAll("input[type=radio]").forEach(function (input) {
+  input.addEventListener("change", function () {
+    document.title = ["entitled", "sponsorship"].map(function (name) {
+      var picked = document.querySelector("input[name='" + name + "']:checked");
+      return name + "=" + (picked ? picked.value : "none");
+    }).join(" ");
+  });
 });
 document.querySelector("form").addEventListener("submit", function (event) {
   event.preventDefault();
@@ -245,6 +259,18 @@ def test_form_verbs_end_to_end(env, site_url, tmp_path):
         results = {r["field_id"]: r for r in client.apply(job.id, actions, resolved)}
         assert all(r["ok"] for r in results.values()), results
         assert all(r["verified"] for r in results.values()), results
+
+        # Two groups offering the same Yes and No labels. Each must take its own
+        # answer instead of collapsing onto the first group on the page, so the
+        # page reports both selections back through the title rather than
+        # through the same read-back the verb itself performs.
+        radio_actions = [
+            {"verb": "select", "field_id": "entitled", "value": "Yes"},
+            {"verb": "select", "field_id": "sponsorship", "value": "No"},
+        ]
+        radios = {r["field_id"]: r for r in client.apply(job.id, radio_actions, resolved)}
+        assert all(r["ok"] and r["verified"] for r in radios.values()), radios
+        assert client.page_state(job.id)["title"] == "entitled=Yes sponsorship=No"
 
         unmapped = client.apply(
             job.id, [{"verb": "set", "field_id": "ghost", "value": "x"}], resolved

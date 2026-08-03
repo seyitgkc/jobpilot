@@ -465,6 +465,35 @@ def test_captcha_blocker_offers_submit_now(web, paths, fill_client):
     assert blockers.list_open(conn, job.id) == []
 
 
+def test_assist_sheet_for_manual_application(web, paths, fill_client):
+    client, conn = web
+    job = seed_job(conn, paths, tailored=True)
+    fill.extract_form(conn, paths, Config(), fill_client, job.id)
+    state.approve_resume(conn, job.id, "owner")
+    fill.apply_mapping(
+        conn, paths, Config(), fill_client, job.id,
+        make_mapping(
+            cover=MappedField(
+                field_id="cover", value="Short and honest.",
+                source="answer_bank", confidence=0.9,
+            )
+        ),
+    )
+    answers.set_answer(conn, "Work authorization", "Canadian citizen", "owner")
+    answers.set_answer(conn, "Passport number", "X1234567", "owner", sensitive=True)
+
+    page = client.get(f"/jobs/{job.id}/assist")
+    assert page.status_code == 200
+    assert "Download the tailored PDF" in page.text
+    assert "Jamie" in page.text
+    assert "Canadian citizen" in page.text
+    assert "X1234567" not in page.text
+    assert "[saved privately]" in page.text
+
+    detail = client.get(f"/jobs/{job.id}")
+    assert f'/jobs/{job.id}/assist' in detail.text
+
+
 def test_mark_submitted_by_hand_from_panel(web, paths):
     client, conn = web
     job = seed_job(conn, paths, tailored=True)

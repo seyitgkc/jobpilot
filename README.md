@@ -63,8 +63,17 @@ They share state through the database, so start only what the moment needs.
 jobpilot-browserd
 ```
 
-The browser daemon owns the single visible Chromium window. Required for
-capturing postings and filling forms; everything else works without it.
+The browser daemon owns the single visible browser window. Required for
+capturing postings and filling forms; everything else works without it. It
+drives the Google Chrome installed on this machine (`browser.channel`),
+which renders with the real GPU; set the channel to an empty string to use
+the Playwright build instead, which renders in software.
+
+Some boards refuse automated sessions outright, and no configuration
+changes that. Those applications are filled in by hand: the job page links
+to an answer sheet with the tailored resume and every value jobpilot would
+have entered, and Mark submitted by hand puts the application back under
+mail tracking once it is in.
 Under the default `browser.focus_policy = "notify_only"`, the daemon hands
 focus back to whatever app you were using whenever launching or opening a
 tab pulls Chromium to the front; expect a sub-second flash instead of a

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Apply by hand, job {{ job.id }}, jobpilot{% endblock %}
+{% block content %}
+<h1>Apply by hand: {{ job.title or "?" }} at {{ job.company or "?" }}</h1>
+<p class="small"><a href="/jobs/{{ job.id }}">Job</a> &middot;
+  <a href="{{ job.canonical_url or job.url }}">Posting</a></p>
+<p class="muted small">For applications you fill in yourself. Everything
+jobpilot would have entered is here to copy. When the application is in,
+use Mark submitted by hand on the job page so mail tracking picks it up.</p>
+
+<div class="card">
+  <h2>Resume</h2>
+  {% if data.resume %}
+  <p><a href="/jobs/{{ job.id }}/artifacts/{{ data.resume.artifact_id }}">Download the tailored PDF</a>
+    <span class="muted small">{{ data.resume.path }}</span></p>
+  {% else %}
+  <p class="muted">No tailored resume yet.</p>
+  {% endif %}
+</div>
+
+<h2>Answers</h2>
+{% if data.answers %}
+<table>
+  <tr><th>Field</th><th>Value</th><th>Source</th></tr>
+  {% for row in data.answers %}
+  <tr>
+    <td>{{ row.label }}</td>
+    <td>{{ row.value }}</td>
+    <td class="muted small">{{ row.source|human }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="card"><p>Nothing saved for this application yet.</p></div>
+{% endif %}
+{% endblock %}

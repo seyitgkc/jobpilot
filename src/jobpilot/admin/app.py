@@ -259,6 +259,15 @@ def create_app(
             raise HTTPException(status_code=404, detail="artifact file missing on disk")
         return FileResponse(file_path)
 
+    @app.get("/jobs/{job_id}/assist")
+    def assist_page(request: Request, job_id: int):
+        conn = db(request)
+        job = load_job(conn, job_id)
+        return render(
+            request, "assist.html", job=job,
+            data=fill.assist_sheet(conn, paths, job_id),
+        )
+
     @app.get("/jobs/{job_id}/glance")
     def glance_page(request: Request, job_id: int):
         conn = db(request)

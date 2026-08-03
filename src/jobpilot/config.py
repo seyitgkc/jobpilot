@@ -34,6 +34,10 @@ class BrowserConfig:
     focus_policy: str = "notify_only"
     settle_ms: int = 1500
     daemon_port: int = 8377
+    # Which browser to drive: "chrome" uses the Google Chrome installed on
+    # this machine, "" uses the Playwright build. Real Chrome renders with
+    # the GPU and reports itself honestly as the browser it is.
+    channel: str = "chrome"
 
 
 @dataclass(frozen=True)

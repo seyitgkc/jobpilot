@@ -12,6 +12,7 @@ tab_cap = 8
 focus_policy = "notify_only"
 settle_ms = 1500
 daemon_port = 8377
+channel = "chrome"
 
 [ai]
 provider = "anthropic"

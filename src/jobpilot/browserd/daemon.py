@@ -49,10 +49,26 @@ class BrowserDaemon:
         self.paths.browser_profile_dir.mkdir(parents=True, exist_ok=True)
         previous = await focus.front_bundle() if self._keeps_focus() else None
         self._playwright = await async_playwright().start()
-        self._context = await self._playwright.chromium.launch_persistent_context(
-            user_data_dir=str(self.paths.browser_profile_dir),
-            headless=self.headless,
-        )
+        options = {
+            "user_data_dir": str(self.paths.browser_profile_dir),
+            "headless": self.headless,
+        }
+        channel = self.config.browser.channel
+        if channel:
+            options["channel"] = channel
+        try:
+            self._context = await self._playwright.chromium.launch_persistent_context(
+                **options
+            )
+        except Exception:
+            if not channel:
+                raise
+            # The configured channel is not installed here; the bundled build
+            # still works, with software rendering.
+            options.pop("channel")
+            self._context = await self._playwright.chromium.launch_persistent_context(
+                **options
+            )
         if previous:
             asyncio.get_running_loop().create_task(focus.restore(previous))
 

@@ -198,7 +198,16 @@ async def _apply_one(page: Page, action: dict, selector_map: dict) -> dict:
         elif verb == "select":
             value = action.get("value")
             if descriptor.get("kind") == "radio":
-                option = page.get_by_role("radio", name=str(value)).first
+                # Scope the option to its own group. One form routinely carries
+                # several groups sharing option labels such as Yes and No, so a
+                # page-wide lookup lands on whichever group comes first and then
+                # verifies against that same wrong element.
+                group = page.locator(
+                    f"input[type=radio][name='{descriptor['name_attr']}']"
+                )
+                option = group.and_(page.get_by_role("radio", name=str(value))).first
+                if await option.count() == 0:
+                    option = group.locator(f"[value='{value}']").first
                 await option.check(timeout=8000)
                 result["ok"] = True
                 result["verified"] = await option.is_checked()
