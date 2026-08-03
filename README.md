@@ -36,8 +36,12 @@ sudo /Library/TeX/texbin/tlmgr update --self
 ```
 
 ```
-sudo /Library/TeX/texbin/tlmgr install latexmk titlesec marvosym enumitem preprint needspace
+sudo /Library/TeX/texbin/tlmgr install latexmk titlesec marvosym enumitem preprint needspace cm-super
 ```
+
+`cm-super` carries the Type 1 outlines for the T1 encoding the template
+uses. Without it pdflatex falls back to METAFONT bitmaps, and the PDF looks
+jagged on screen and prints badly while still compiling without error.
 
 The resume master lives in `data/resume_master/`: `facts.yaml` is the fact
 base every tailored resume draws from, and an optional `template.tex.j2`

@@ -14,10 +14,10 @@
 % Page-break guard before headings; harmless no-op when the package is
 % not installed.
 \IfFileExists{needspace.sty}{\usepackage{needspace}}{\providecommand{\needspace}[1]{}}
-% Latin Modern ships Type 1 outlines for the T1 encoding. Without it a TeX
-% install lacking cm-super falls back to METAFONT bitmaps, which render
-% jagged on screen and print badly.
-\usepackage{lmodern}
+% T1 keeps accented characters encoded rather than composed, so they survive
+% text extraction by an applicant tracking system. It needs cm-super for the
+% Computer Modern outlines; without that package pdflatex falls back to
+% METAFONT bitmaps and the PDF prints badly.
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \input{glyphtounicode}
