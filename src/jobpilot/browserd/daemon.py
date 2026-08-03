@@ -59,6 +59,9 @@ class BrowserDaemon:
         channel = self.config.browser.channel
         if channel:
             options["channel"] = channel
+            # Ensure 'args' is inside your options dictionary or explicitly passed
+            options['args'] = options.get('args', []) + ['--disable-blink-features=AutomationControlled']
+
         try:
             self._context = await self._playwright.chromium.launch_persistent_context(
                 **options
