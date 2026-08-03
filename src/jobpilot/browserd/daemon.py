@@ -63,6 +63,13 @@ class BrowserDaemon:
             self._context = await self._playwright.chromium.launch_persistent_context(
                 **options
             )
+            assert self._context is not None, "Browser context is not initialized"
+
+            await self._context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
         except Exception:
             if not channel:
                 raise
