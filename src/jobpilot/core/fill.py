@@ -664,16 +664,32 @@ def submit_job(
             client.focus(job.id)
         except Exception:
             pass
+        if challenge.get("visible", True):
+            question = (
+                "This application asks for human verification before it "
+                "can be sent. The tab is in front: solve it there, then "
+                "use Submit now, and the application goes out "
+                "immediately while the verification is still valid."
+            )
+        else:
+            # Nothing is drawn to solve, so pointing at the tab would send the
+            # owner looking for a widget that is not there.
+            question = (
+                "This application runs hCaptcha, which scores the session "
+                "rather than showing something to solve. A send from here is "
+                "likely to come back as a verification error even though the "
+                "answers are correct. Send it by hand from the answer sheet, "
+                "then use Mark submitted by hand. Use Submit now only to try "
+                "it anyway."
+            )
         result.blockers.append(
             blockers.raise_blocker(
                 conn, job.id, "captcha", actor,
-                question=(
-                    "This application asks for human verification before it "
-                    "can be sent. The tab is in front: solve it there, then "
-                    "use Submit now, and the application goes out "
-                    "immediately while the verification is still valid."
-                ),
-                page_context={"kind": challenge.get("kind")},
+                question=question,
+                page_context={
+                    "kind": challenge.get("kind"),
+                    "visible": challenge.get("visible", True),
+                },
             )
         )
         return result

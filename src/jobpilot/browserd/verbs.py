@@ -158,6 +158,15 @@ _CHALLENGE_SELECTORS = (
 )
 
 
+# hCaptcha scores the whole session and can reject a submission without ever
+# drawing a widget, so its presence counts whether or not anything is on
+# screen to solve.
+_HCAPTCHA_ANY = (
+    "iframe[src*='hcaptcha'], .h-captcha, script[src*='hcaptcha'],"
+    " textarea[name='h-captcha-response'], [data-hcaptcha-widget-id]"
+)
+
+
 async def detect_challenge(page: Page) -> dict:
     """Report a human verification widget on the page. Detection only: the
     owner solves it, the system never touches it."""
@@ -165,10 +174,15 @@ async def detect_challenge(page: Page) -> dict:
         try:
             locator = page.locator(selector).first
             if await locator.count() and await locator.is_visible():
-                return {"present": True, "kind": kind}
+                return {"present": True, "kind": kind, "visible": True}
         except Exception:
             continue
-    return {"present": False, "kind": None}
+    try:
+        if await page.locator(_HCAPTCHA_ANY).first.count():
+            return {"present": True, "kind": "hcaptcha", "visible": False}
+    except Exception:
+        pass
+    return {"present": False, "kind": None, "visible": False}
 
 
 async def resolve_apply(page: Page, apply_control: dict | None) -> dict | None:

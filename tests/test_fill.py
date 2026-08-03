@@ -566,3 +566,48 @@ def test_submitted_job_does_not_fill_again(conn, paths, tailored_job):
     )
     assert not result.ok
     assert "submitted" in result.error
+
+
+def _fill_and_ready(conn, paths, client, job):
+    assert extract(conn, paths, client, job).ok
+    state.approve_resume(conn, job.id, "owner")
+    assert fill.apply_mapping(
+        conn, paths, Config(), client, job.id,
+        FieldMapping(fields=[
+            MappedField(
+                field_id="first_name", value="Jamie",
+                source="answer_bank", confidence=1.0,
+            ),
+        ]),
+    ).ok
+    state.approve_submit(conn, job.id, "owner")
+
+
+def test_passive_hcaptcha_parks_without_sending(conn, paths, tailored_job):
+    client = FakeFillClient()
+    _fill_and_ready(conn, paths, client, tailored_job)
+    client.challenge = lambda job_id: {
+        "present": True, "kind": "hcaptcha", "visible": False,
+    }
+
+    result = fill.submit_job(conn, paths, Config(), client, tailored_job.id)
+
+    assert not result.ok
+    parked = blockers.list_open(conn, tailored_job.id)
+    assert [b.kind for b in parked] == ["captcha"]
+    # Nothing is drawn, so the owner is sent to the sheet rather than the tab.
+    assert "by hand" in parked[0].question
+    assert "solve it there" not in parked[0].question
+    assert repo.get_job(conn, tailored_job.id).status == "filled"
+
+
+def test_visible_challenge_still_points_at_the_tab(conn, paths, tailored_job):
+    client = FakeFillClient()
+    _fill_and_ready(conn, paths, client, tailored_job)
+    client.challenge = lambda job_id: {
+        "present": True, "kind": "recaptcha", "visible": True,
+    }
+
+    assert not fill.submit_job(conn, paths, Config(), client, tailored_job.id).ok
+    parked = blockers.list_open(conn, tailored_job.id)
+    assert "solve it there" in parked[0].question
