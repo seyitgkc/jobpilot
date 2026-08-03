@@ -43,6 +43,10 @@ _IDENTITY_FIELDS = (
     ("website", lambda profile: f"https://{profile.github}" if profile.github else None),
 )
 
+# Boards chain an apply step across a couple of pages before the form shows.
+# Past a few hops the control is looping rather than leading anywhere.
+_APPLY_GATE_HOPS = 3
+
 _CONFIRMATION_REF = re.compile(
     r"(?:confirmation|reference|application)\s*(?:number|id|code)\s*[:#]?\s*([A-Za-z0-9-]{4,})",
     re.IGNORECASE,
@@ -115,26 +119,41 @@ def extract_form(
 
     # Posting pages that keep the form behind an apply step: the apply
     # control is part of the extracted schema, so clicking it stays within
-    # the mapped-verb rules. One follow, then extraction runs on what it
-    # revealed.
-    if schema.submit_button is None and schema.apply_button is not None:
+    # the mapped-verb rules. Boards chain these steps and some send the
+    # applicant to another site entirely, so keep following while the page
+    # offers a way forward and no fields have appeared. A page carrying no
+    # fields counts even when something submit-shaped was matched, because
+    # skip links and search buttons read as submit controls.
+    seen_urls = {page.get("url")}
+    for _ in range(_APPLY_GATE_HOPS):
+        if schema.apply_button is None:
+            break
+        if schema.fields and schema.submit_button is not None:
+            break
         resolution = client.resolve(job.id, schema.model_dump())
         apply_descriptor = resolution["resolved"].get("apply")
-        if apply_descriptor is not None:
-            outcomes = client.apply(
-                job.id,
-                [{"verb": "click_mapped", "field_id": "apply"}],
-                {"apply": apply_descriptor},
-            )
-            if outcomes and outcomes[0]["ok"]:
-                events.append(
-                    conn, actor=actor, kind="apply_gate_followed", job_id=job.id,
-                    payload={"label": schema.apply_button.label},
-                )
-                conn.commit()
-                page = client.archive(job.id)
-                raw_html = page.get("raw_html") or page["html"]
-                schema, method = adapters.extract_schema(job, raw_html, **kwargs)
+        if apply_descriptor is None:
+            break
+        outcomes = client.apply(
+            job.id,
+            [{"verb": "click_mapped", "field_id": "apply"}],
+            {"apply": apply_descriptor},
+        )
+        if not outcomes or not outcomes[0]["ok"]:
+            break
+        events.append(
+            conn, actor=actor, kind="apply_gate_followed", job_id=job.id,
+            payload={"label": schema.apply_button.label},
+        )
+        conn.commit()
+        page = client.archive(job.id)
+        raw_html = page.get("raw_html") or page["html"]
+        schema, method = adapters.extract_schema(job, raw_html, **kwargs)
+        url = page.get("url")
+        # A control that reopens the page it sits on would otherwise loop.
+        if url in seen_urls and not schema.fields:
+            break
+        seen_urls.add(url)
 
     result.schema = schema
     if not schema.fields:
@@ -657,39 +676,26 @@ def submit_job(
         challenge = client.challenge(job.id)
     except Exception:
         challenge = {"present": False}
-    if challenge.get("present"):
+    # A drawn widget has to be solved before anything is sent. A passive
+    # hCaptcha draws nothing to solve, so the send is attempted and judged by
+    # what comes back.
+    if challenge.get("present") and challenge.get("visible", True):
         state.transition(conn, job.id, "filled", actor)
         result.job = repo.get_job(conn, job_id)
         try:
             client.focus(job.id)
         except Exception:
             pass
-        if challenge.get("visible", True):
-            question = (
-                "This application asks for human verification before it "
-                "can be sent. The tab is in front: solve it there, then "
-                "use Submit now, and the application goes out "
-                "immediately while the verification is still valid."
-            )
-        else:
-            # Nothing is drawn to solve, so pointing at the tab would send the
-            # owner looking for a widget that is not there.
-            question = (
-                "This application runs hCaptcha, which scores the session "
-                "rather than showing something to solve. A send from here is "
-                "likely to come back as a verification error even though the "
-                "answers are correct. Send it by hand from the answer sheet, "
-                "then use Mark submitted by hand. Use Submit now only to try "
-                "it anyway."
-            )
         result.blockers.append(
             blockers.raise_blocker(
                 conn, job.id, "captcha", actor,
-                question=question,
-                page_context={
-                    "kind": challenge.get("kind"),
-                    "visible": challenge.get("visible", True),
-                },
+                question=(
+                    "This application asks for human verification before it "
+                    "can be sent. The tab is in front: solve it there, then "
+                    "use Submit now, and the application goes out "
+                    "immediately while the verification is still valid."
+                ),
+                page_context={"kind": challenge.get("kind"), "visible": True},
             )
         )
         return result
@@ -727,6 +733,43 @@ def submit_job(
         return result
 
     screenshot = client.screenshot(job.id)
+
+    # A verification widget standing on the page after the click means the
+    # send was refused, so the application is still sitting there filled.
+    try:
+        refused = client.challenge(job.id)
+    except Exception:
+        refused = {"present": False}
+    if refused.get("present") and refused.get("visible", True):
+        result.artifacts["refused_screenshot"] = artifacts.store_bytes(
+            conn, paths, job.id, "refused_screenshot",
+            "screenshots_refused.png", screenshot, actor,
+        )
+        state.transition(conn, job.id, "filled", actor)
+        result.job = repo.get_job(conn, job_id)
+        try:
+            client.focus(job.id)
+        except Exception:
+            pass
+        result.blockers.append(
+            blockers.raise_blocker(
+                conn, job.id, "captcha", actor,
+                question=(
+                    "The send was refused and human verification is now on "
+                    "the page, so the application did not go out. The answers "
+                    "are still filled in. The tab is in front: solve the "
+                    "verification there, then use Submit now. If it refuses "
+                    "again, send it by hand from the answer sheet and use "
+                    "Mark submitted by hand."
+                ),
+                page_context={
+                    "kind": refused.get("kind"),
+                    "after_submit": True,
+                },
+            )
+        )
+        return result
+
     result.artifacts["confirmation_screenshot"] = artifacts.store_bytes(
         conn, paths, job.id, "confirmation_screenshot",
         "screenshots_confirmation.png", screenshot, actor,

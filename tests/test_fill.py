@@ -583,22 +583,45 @@ def _fill_and_ready(conn, paths, client, job):
     state.approve_submit(conn, job.id, "owner")
 
 
-def test_passive_hcaptcha_parks_without_sending(conn, paths, tailored_job):
+def test_passive_hcaptcha_is_attempted_rather_than_parked(
+    conn, paths, tailored_job
+):
     client = FakeFillClient()
     _fill_and_ready(conn, paths, client, tailored_job)
+    # Present but drawing nothing, before the click and after it.
     client.challenge = lambda job_id: {
         "present": True, "kind": "hcaptcha", "visible": False,
     }
 
     result = fill.submit_job(conn, paths, Config(), client, tailored_job.id)
 
+    assert result.ok, result.error
+    assert repo.get_job(conn, tailored_job.id).status == "submitted"
+    assert blockers.list_open(conn, tailored_job.id) == []
+
+
+def test_refused_send_parks_with_the_answers_intact(conn, paths, tailored_job):
+    client = FakeFillClient()
+    _fill_and_ready(conn, paths, client, tailored_job)
+    seen = []
+
+    def challenge(job_id):
+        seen.append(job_id)
+        if len(seen) == 1:
+            return {"present": True, "kind": "hcaptcha", "visible": False}
+        # The widget stands up only once the send is refused.
+        return {"present": True, "kind": "hcaptcha", "visible": True}
+
+    client.challenge = challenge
+    result = fill.submit_job(conn, paths, Config(), client, tailored_job.id)
+
     assert not result.ok
     parked = blockers.list_open(conn, tailored_job.id)
     assert [b.kind for b in parked] == ["captcha"]
-    # Nothing is drawn, so the owner is sent to the sheet rather than the tab.
-    assert "by hand" in parked[0].question
-    assert "solve it there" not in parked[0].question
+    assert "did not go out" in parked[0].question
     assert repo.get_job(conn, tailored_job.id).status == "filled"
+    assert "refused_screenshot" in result.artifacts
+    assert "confirmation_screenshot" not in result.artifacts
 
 
 def test_visible_challenge_still_points_at_the_tab(conn, paths, tailored_job):
@@ -611,3 +634,71 @@ def test_visible_challenge_still_points_at_the_tab(conn, paths, tailored_job):
     assert not fill.submit_job(conn, paths, Config(), client, tailored_job.id).ok
     parked = blockers.list_open(conn, tailored_job.id)
     assert "solve it there" in parked[0].question
+
+
+# A posting whose only controls are a skip link and an offsite apply link.
+# The skip link reads as a submit control, which used to disable the follow.
+SKIP_LINK_POSTING_HTML = """
+<a href="#main">Skip to Main Content</a>
+<h1>Backend Engineer</h1>
+<a href="https://careers.example.icims.com/jobs/8877/login">Apply</a>
+"""
+
+INTERSTITIAL_HTML = """
+<a href="#main">Skip to Main Content</a>
+<h1>Create an account or sign in</h1>
+<a href="https://careers.example.icims.com/jobs/8877/form">Apply</a>
+"""
+
+
+class ChainedGateClient(FakeFillClient):
+    """The form sits two apply steps away, on another host."""
+
+    def __init__(self, pages):
+        super().__init__(html=pages[0])
+        self.pages = list(pages)
+        self.url = "https://careers.example.com/jobs/8877"
+        self.hop = 0
+
+    def archive(self, job_id):
+        return {
+            "html": self.html, "raw_html": self.html,
+            "url": f"{self.url}/{self.hop}", "title": "Apply",
+        }
+
+    def apply(self, job_id, actions, selector_map):
+        results = super().apply(job_id, actions, selector_map)
+        if any(a["verb"] == "click_mapped" and a["field_id"] == "apply"
+               for a in actions):
+            self.hop += 1
+            if self.hop < len(self.pages):
+                self.html = self.pages[self.hop]
+        return results
+
+
+def test_apply_gate_follows_across_pages(conn, paths, tailored_job):
+    client = ChainedGateClient(
+        [SKIP_LINK_POSTING_HTML, INTERSTITIAL_HTML, FORM_HTML]
+    )
+    result = extract(conn, paths, client, tailored_job)
+
+    assert result.ok, [b.question for b in result.blockers]
+    assert client.hop == 2
+    field_ids = {field.field_id for field in result.schema.fields}
+    assert "first_name" in field_ids and "email" in field_ids
+
+
+def test_apply_gate_gives_up_on_a_control_that_goes_nowhere(
+    conn, paths, tailored_job
+):
+    # Every hop lands back on a page with no fields, so this must not spin.
+    client = ChainedGateClient([SKIP_LINK_POSTING_HTML])
+    client.archive = lambda job_id: {
+        "html": client.html, "raw_html": client.html,
+        "url": "https://careers.example.com/jobs/8877", "title": "Apply",
+    }
+    result = extract(conn, paths, client, tailored_job)
+
+    assert not result.ok
+    assert result.blockers[0].kind == "extraction_failed"
+    assert client.hop <= 3
