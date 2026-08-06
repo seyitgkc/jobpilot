@@ -227,6 +227,19 @@ def _tokens(text: str | None) -> set[str]:
     return set(_TOKEN.findall((text or "").lower()))
 
 
+# Words that name the level of a role rather than the work. Two openings at
+# one employer usually differ by exactly one of these.
+_LEVELS = frozenset(
+    {"intern", "internship", "junior", "graduate", "entry", "associate",
+     "intermediate", "mid", "senior", "staff", "principal", "lead", "director",
+     "head", "manager", "architect", "vp"}
+)
+
+
+def _levels(text: str | None) -> set[str]:
+    return _tokens(text) & _LEVELS
+
+
 def score_job(
     conn: sqlite3.Connection, mail: Mail, body: str, job
 ) -> float:
@@ -241,6 +254,18 @@ def score_job(
     if title_tokens:
         overlap = sum(1 for token in title_tokens if token in haystack) / len(title_tokens)
         score += 0.25 * overlap
+    # An employer running several openings sends near-identical mail for each,
+    # so the company name alone cannot say which application it answers. The
+    # level is what separates them, and a mail naming a different one is
+    # answering a different application.
+    theirs = _levels(haystack)
+    ours = _levels(job.title)
+    if theirs and ours and not (theirs & ours):
+        score -= 0.45
+    elif ours and not theirs and not any(t in haystack for t in ours):
+        # Our level is named nowhere in a mail that otherwise looks like a
+        # match, which is weak evidence rather than proof of a mismatch.
+        score -= 0.1
     if mail.sender_domain and any(
         mail.sender_domain.endswith(domain) for domain in ATS_DOMAINS
     ):

@@ -416,3 +416,52 @@ def test_imap_password_missing_raises(monkeypatch):
     with pytest.raises(RuntimeError) as excinfo:
         mail.imap_password(config)
     assert "security add-generic-password" in str(excinfo.value)
+
+
+def test_a_rejection_for_another_level_does_not_claim_the_job(conn, paths):
+    # One employer, two openings. The mail answers the Staff application; the
+    # tracked job is the Intermediate one. Company, sender and timing all
+    # agree, so only the level separates them.
+    job = make_job(conn, company="Achievers", title="Intermediate Software Engineer")
+    stored = mail.store_message(
+        conn, paths,
+        eml(
+            message_id="<staff@hire.lever.co>",
+            sender="Achievers <no-reply@hire.lever.co>",
+            subject="Thanks for your interest in Achievers, Seyit",
+            body=(
+                "Thank you for submitting your application to Achievers for the "
+                "Staff Software Engineer role. After reviewing your application, "
+                "we've made the decision to not move forward at this time."
+            ),
+        ),
+        "worker",
+    )
+    score = mail.score_job(conn, stored, mail.body_text(paths, stored), job)
+    assert score < Config().mail.match_threshold, score
+
+
+def test_the_matching_level_still_scores_a_confident_match(conn, paths):
+    job = make_job(conn, company="Achievers", title="Intermediate Software Engineer")
+    stored = mail.store_message(
+        conn, paths,
+        eml(
+            message_id="<intermediate@hire.lever.co>",
+            sender="Achievers <no-reply@hire.lever.co>",
+            subject="Thanks for your interest in Achievers, Seyit",
+            body=(
+                "Thank you for submitting your application to Achievers for the "
+                "Intermediate Software Engineer role."
+            ),
+        ),
+        "worker",
+    )
+    score = mail.score_job(conn, stored, mail.body_text(paths, stored), job)
+    assert score >= Config().mail.match_threshold, score
+
+
+def test_a_title_with_no_level_word_is_unaffected(conn, paths):
+    job = make_job(conn, company="Acme", title="Platform Engineer")
+    stored = mail.store_message(conn, paths, eml(), "worker")
+    score = mail.score_job(conn, stored, mail.body_text(paths, stored), job)
+    assert score >= Config().mail.match_threshold, score
