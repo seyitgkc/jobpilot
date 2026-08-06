@@ -19,6 +19,7 @@ from ..config import Config, DataPaths, load_config
 from ..db import open_db
 from ..core import agenda as agenda_module
 from ..core import answers as answers_module
+from ..core import blacklist as blacklist_module
 from ..core import (
     blockers,
     context as context_module,
@@ -103,6 +104,8 @@ class JobpilotApi:
                 "job": result.job,
                 "artifacts": {k: v.path for k, v in result.artifacts.items()},
                 "blockers": result.blockers,
+                "blacklisted": result.blacklisted,
+                "rejections": result.rejections,
             }
         )
 
@@ -336,6 +339,33 @@ class JobpilotApi:
     def rules_set_status(self, rule_id: int, status: str) -> dict:
         return _plain(rules_module.set_status(self.conn, rule_id, status, "owner"))
 
+    def blacklist_list(self) -> list[dict]:
+        """Employers ruled out, each with the rejection mail on file from
+        them."""
+        out = []
+        for entry in blacklist_module.list_all(self.conn):
+            row = _plain(entry)
+            row["rejections"] = _plain(
+                blacklist_module.rejections(self.conn, entry)
+            )
+            out.append(row)
+        return out
+
+    def blacklist_add(
+        self, pattern: str, kind: str = "company", note: str = ""
+    ) -> dict:
+        """Rule out an employer. kind is company or domain. Capture abandons
+        any posting that matches, before tailoring spends anything on it."""
+        entry = blacklist_module.add(
+            self.conn, pattern, "owner", kind=kind, note=note or None
+        )
+        row = _plain(entry)
+        row["rejections"] = _plain(blacklist_module.rejections(self.conn, entry))
+        return row
+
+    def blacklist_remove(self, entry_id: int) -> dict:
+        return {"removed": blacklist_module.remove(self.conn, entry_id, "owner")}
+
     def context_get(self, job_id: int) -> list[dict]:
         return _plain(context_module.active(self.conn, job_id))
 
@@ -444,6 +474,7 @@ def create_server(
         "mail_classify_context", "mail_classify",
         "answer_bank_list", "answer_bank_set",
         "rules_list", "rules_propose", "rules_set_status",
+        "blacklist_list", "blacklist_add", "blacklist_remove",
         "context_get", "context_append", "context_supersede",
         "credential_set", "credential_list",
         "settings_get", "settings_set",

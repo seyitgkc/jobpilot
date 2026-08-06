@@ -13,7 +13,8 @@ import sqlite3
 from dataclasses import dataclass
 
 from ..config import Config, DataPaths
-from . import artifacts, blockers, boards, extract, repo, state
+from . import artifacts, blacklist, blockers, boards, events, extract, repo, state
+from .mail import Mail
 from .models import Artifact, Blocker, Job
 
 WORKDAY_QUESTION = (
@@ -28,6 +29,10 @@ class CaptureResult:
     job: Job
     artifacts: dict[str, Artifact]
     blockers: list[Blocker]
+    # Set when the employer is on the blacklist. The posting is still
+    # archived, since the archive is the record of why nothing followed.
+    blacklisted: "blacklist.BlacklistEntry | None" = None
+    rejections: tuple[Mail, ...] = ()
 
 
 def capture(
@@ -115,6 +120,23 @@ def capture(
             client.close_tab(job.id)
         except Exception:
             pass
+
+    # The employer is known only once the page has been read, so the check
+    # lands here rather than on the URL alone. Abandoning stops the pipeline
+    # without deleting the archive.
+    ruled_out = blacklist.match(conn, job.company, job.canonical_url or job.url)
+    if ruled_out is not None:
+        found = tuple(blacklist.rejections(conn, ruled_out))
+        job = state.transition(conn, job.id, "abandoned", actor)
+        events.append(
+            conn, actor=actor, kind="blacklist_blocked", job_id=job.id,
+            payload={"pattern": ruled_out.pattern, "rejections": len(found)},
+        )
+        conn.commit()
+        return CaptureResult(
+            job=job, artifacts=stored, blockers=[],
+            blacklisted=ruled_out, rejections=found,
+        )
 
     raised: list[Blocker] = []
     if job.workday_flag:

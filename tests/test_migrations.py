@@ -14,6 +14,7 @@ EXPECTED_TABLES = {
     "job_context",
     "credential",
     "setting",
+    "blacklist",
     "schema_migration",
 }
 
