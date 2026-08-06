@@ -18,6 +18,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email import policy
+from urllib.parse import unquote, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -240,6 +241,78 @@ def _levels(text: str | None) -> set[str]:
     return _tokens(text) & _LEVELS
 
 
+# Host and path parts that name the board or the page, never the employer.
+_GENERIC_URL_PARTS = frozenset(
+    {"www", "careers", "career", "jobs", "job", "apply", "boards", "board",
+     "hire", "hiring", "talent", "recruiting", "recruit", "opportunities",
+     "openings", "position", "positions", "vacancy", "vacancies", "index",
+     "search", "listing", "listings", "detail", "details", "posting", "en-us"}
+)
+_TENANT_SUFFIX = re.compile(r"-[0-9a-f]{5,}$")
+_HEXISH = re.compile(r"^[0-9a-f-]{12,}$", re.IGNORECASE)
+
+# Board hosts, stripped before anything in a URL is read as an employer.
+# Wider than ATS_DOMAINS, which exists to score a sender rather than to name
+# a company: taking "hibob" for an employer would match every hibob customer.
+_BOARD_DOMAINS = ATS_DOMAINS + (
+    "hibob.com",
+    "applytojob.com",
+    "recruiterflow.com",
+    "recruitee.com",
+    "workable.com",
+    "teamtailor.com",
+    "personio.com",
+    "breezy.hr",
+    "jazz.co",
+    "paylocity.com",
+    "dayforcehcm.com",
+    "taleo.net",
+    "successfactors.com",
+    "eightfold.ai",
+    "rippling.com",
+)
+
+
+def aliases(job) -> set[str]:
+    """Other names for the same employer, taken from the posting URL.
+
+    A board mails from its own domain and often signs with a parent company
+    or a brand the job row never records, so the company name alone can miss.
+    The tenant or slug in the URL is a second name for the same employer, and
+    the board's own domain is stripped so it cannot stand in for one.
+    """
+    found: set[str] = set()
+    for url in {getattr(job, "canonical_url", None), getattr(job, "url", None)}:
+        if not url:
+            continue
+        parsed = urlparse(url)
+        host = parsed.netloc.lower().split(":")[0]
+        for board in _BOARD_DOMAINS:
+            if host.endswith(board):
+                host = host[: -len(board)].rstrip(".")
+                break
+        else:
+            # Not a known board, so drop only the public suffix label.
+            host = ".".join(host.split(".")[:-1])
+        for label in host.split("."):
+            label = _TENANT_SUFFIX.sub("", label)
+            if len(label) >= 4 and label not in _GENERIC_URL_PARTS:
+                found.add(label)
+        for segment in unquote(parsed.path).split("/"):
+            segment = re.sub(r"[^a-z0-9]+", "", segment.strip().lower())
+            # An employer slug is short and mostly letters. Anything longer is
+            # the role title, and anything digit-heavy is an opening's id.
+            digits = sum(character.isdigit() for character in segment)
+            if (
+                4 <= len(segment) <= 30
+                and segment not in _GENERIC_URL_PARTS
+                and not _HEXISH.match(segment)
+                and digits / len(segment) <= 0.25
+            ):
+                found.add(segment)
+    return {name for name in found if len(name) >= 4}
+
+
 def score_job(
     conn: sqlite3.Connection, mail: Mail, body: str, job
 ) -> float:
@@ -248,8 +321,15 @@ def score_job(
     ).lower()
     score = 0.0
     company_tokens = {t for t in _tokens(job.company) if len(t) >= 4} or _tokens(job.company)
-    if company_tokens and any(token in haystack for token in company_tokens):
+    named = bool(company_tokens) and any(token in haystack for token in company_tokens)
+    if named:
         score += 0.5
+    else:
+        # The mail may name the employer by a brand or parent the job row does
+        # not carry. The posting URL holds those other names.
+        squashed = re.sub(r"[^a-z0-9]+", "", haystack)
+        if any(alias in squashed for alias in aliases(job)):
+            score += 0.4
     title_tokens = {t for t in _tokens(job.title) if len(t) >= 4}
     if title_tokens:
         overlap = sum(1 for token in title_tokens if token in haystack) / len(title_tokens)

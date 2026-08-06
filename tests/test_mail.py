@@ -465,3 +465,51 @@ def test_a_title_with_no_level_word_is_unaffected(conn, paths):
     stored = mail.store_message(conn, paths, eml(), "worker")
     score = mail.score_job(conn, stored, mail.body_text(paths, stored), job)
     assert score >= Config().mail.match_threshold, score
+
+
+def test_a_parent_company_in_the_sender_still_matches(conn, paths):
+    # The employer is recorded under its lending brand, and the board mails
+    # from the parent's address. Nothing in the mail says "Lakeview".
+    job = make_job(conn, company="Lakeview Loan Servicing", title="Backend Engineer")
+    conn.execute(
+        "UPDATE job SET url = ?, canonical_url = ? WHERE id = ?",
+        ("https://careers.bayview.com/lls/jobs/8877",
+         "https://careers.bayview.com/lls/jobs/8877", job.id),
+    )
+    conn.commit()
+    job = repo.get_job(conn, job.id)
+    stored = mail.store_message(
+        conn, paths,
+        eml(
+            message_id="<icims@talent.icims.com>",
+            sender='"Bayview @ icims" <bayview+autoreply@talent.icims.com>',
+            subject="Thank You for Applying at NEW YORK-NY [OFFICE]",
+            body="Thank you for your recent application to Backend Engineer.",
+        ),
+        "worker",
+    )
+    score = mail.score_job(conn, stored, mail.body_text(paths, stored), job)
+    assert score >= Config().mail.match_threshold, score
+
+
+def test_the_board_is_never_read_as_the_employer():
+    class Stub:
+        url = "https://agamcapitalma-ecdcec.careers.hibob.com/jobs/27501f2a"
+        canonical_url = url
+
+    found = mail.aliases(Stub())
+    assert "agamcapitalma" in found
+    # Taking the board would match every other employer hosted on it.
+    assert "hibob" not in found
+    assert "careers" not in found
+
+
+def test_aliases_skip_ids_and_role_titles():
+    class Stub:
+        url = (
+            "https://xanadu.applytojob.com/apply/A0PWS1Tv2c/"
+            "Software-Developer-Backend-Intermediate-To-Senior"
+        )
+        canonical_url = url
+
+    assert mail.aliases(Stub()) == {"xanadu"}
