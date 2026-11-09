@@ -44,10 +44,15 @@
         <button>Approve submission</button>
       </form>
       {% if job.status == "filled" %}
-      <form class="inline" method="post" action="/jobs/{{ job.id }}/submit"
-            onsubmit="return confirm('Send this application now?')">
-        <button class="primary">Approve and submit now</button>
-      </form>
+      <details class="confirm">
+        <summary>Approve and submit now</summary>
+        <div class="confirm-body">
+          <p class="small">Sends this application to the employer now.</p>
+          <form method="post" action="/jobs/{{ job.id }}/submit">
+            <button class="primary">Yes, send it</button>
+          </form>
+        </div>
+      </details>
       <p class="muted small">If the site asks for human verification, the tab
       comes forward; solve it there and use Submit now, and the application
       goes out while the verification is still valid.</p>
@@ -56,10 +61,16 @@
       <p class="muted">Submission approval opens once the form is filled.</p>
     {% endif %}
     {% if markable_manual %}
-    <form class="inline" method="post" action="/jobs/{{ job.id }}/mark-submitted"
-          onsubmit="return confirm('Mark this application as submitted by hand? Stored mail will catch the status up.')">
-      <button>Mark submitted by hand</button>
-    </form>
+    <details class="confirm">
+      <summary>Mark submitted by hand</summary>
+      <div class="confirm-body">
+        <p class="small">Records that you sent this one yourself. Stored mail
+        will catch the status up.</p>
+        <form method="post" action="/jobs/{{ job.id }}/mark-submitted">
+          <button>Yes, mark it submitted</button>
+        </form>
+      </div>
+    </details>
     {% endif %}
     {% endif %}
   </div>
@@ -71,8 +82,7 @@
       to the wrong job, or a step recorded that never happened. The reason
       goes on the timeline.
     </p>
-    <form method="post" action="/jobs/{{ job.id }}/correct-status"
-          onsubmit="return confirm('Set this status by hand? This records a correction, not a move.')">
+    <form method="post" action="/jobs/{{ job.id }}/correct-status">
       <label>Status
         <select name="status">
           {% for value in correctable_statuses %}
@@ -107,15 +117,28 @@
       <button>Save</button>
     </form>
     {% if abandonable %}
-    <form class="inline" method="post" action="/jobs/{{ job.id }}/abandon"
-          onsubmit="return confirm('Abandon this job? The record and its history stay.')">
-      <button class="danger">Abandon job</button>
-    </form>
+    <details class="confirm">
+      <summary class="danger">Abandon job</summary>
+      <div class="confirm-body">
+        <p class="small">Stops work on this application. The record and its
+        history stay.</p>
+        <form method="post" action="/jobs/{{ job.id }}/abandon">
+          <button class="danger">Yes, abandon it</button>
+        </form>
+      </div>
+    </details>
     {% endif %}
-    <form class="inline" method="post" action="/jobs/{{ job.id }}/delete"
-          onsubmit="return confirm('Delete this job with all of its records, artifacts, and files? There is no undo. Assigned mail returns to the unassigned queue.')">
-      <button class="danger">Delete job</button>
-    </form>
+    <details class="confirm">
+      <summary class="danger">Delete job</summary>
+      <div class="confirm-body">
+        <p class="small">Deletes this job with all of its records, artifacts
+        and files. There is no undo. Assigned mail returns to the unassigned
+        queue.</p>
+        <form method="post" action="/jobs/{{ job.id }}/delete">
+          <button class="danger">Yes, delete it</button>
+        </form>
+      </div>
+    </details>
   </div>
 </div>
 

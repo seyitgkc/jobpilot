@@ -591,3 +591,32 @@ def test_the_job_page_refuses_a_correction_with_no_reason(web, paths):
     )
     assert response.status_code == 400
     assert repo.get_job(conn, job.id).status == "submitted_manually"
+
+
+def test_no_page_guards_an_action_with_a_javascript_dialog():
+    # The panel is used inside the automation browser, where window.confirm is
+    # answered for the page and every guarded action was cancelled silently.
+    from pathlib import Path
+
+    import jobpilot.admin as admin_package
+
+    templates = Path(admin_package.__file__).parent / "templates"
+    offenders = [
+        path.name
+        for path in templates.glob("*.html")
+        if "confirm(" in path.read_text()
+    ]
+    assert offenders == []
+
+
+def test_destructive_actions_submit_without_javascript(web, paths):
+    client, conn = web
+    job = seed_job(conn, paths)
+    page = client.get(f"/jobs/{job.id}").text
+    # The confirmation is markup, so the form posts on a plain click.
+    assert f'action="/jobs/{job.id}/delete"' in page
+    assert f'action="/jobs/{job.id}/abandon"' in page
+    assert "Yes, delete it" in page
+
+    assert client.post(f"/jobs/{job.id}/abandon").status_code == 303
+    assert repo.get_job(conn, job.id).status == "abandoned"

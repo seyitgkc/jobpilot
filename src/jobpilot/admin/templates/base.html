@@ -53,6 +53,22 @@ button { cursor: pointer; }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 button.danger { color: var(--bad); }
 textarea { width: 100%; min-height: 3.2rem; }
+/* Two-step confirmation in markup. window.confirm is auto-answered in an
+   automated browser, which silently cancelled every guarded action. */
+details.confirm { display: inline-block; vertical-align: top; }
+details.confirm > summary {
+  font: inherit; padding: 0.3rem 0.6rem; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--panel); cursor: pointer;
+  list-style: none; display: inline-block;
+}
+details.confirm > summary::-webkit-details-marker { display: none; }
+details.confirm > summary.danger { color: var(--bad); }
+details.confirm[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+details.confirm .confirm-body {
+  border: 1px solid var(--line); border-top: none; border-radius: 0 6px 6px 6px;
+  padding: 0.6rem; max-width: 26rem; background: var(--panel);
+}
+details.confirm .confirm-body p { margin: 0 0 0.5rem; }
 .pair-master { color: var(--muted); }
 .pair-changed { background: #fbf6df; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1.2rem; }
