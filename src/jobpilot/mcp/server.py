@@ -128,6 +128,19 @@ class JobpilotApi:
             }
         )
 
+    def job_set_details(
+        self, job_id: int, company: str = "", title: str = ""
+    ) -> dict:
+        """Correct a job's employer and role when capture could not read
+        them (browser down, sign-in wall). Only the fields given change.
+        Mail matching uses these, so fix them before a mail sync."""
+        return _plain(
+            repo.set_job_details(
+                self.conn, job_id, "claude",
+                company=company or None, title=title or None,
+            )
+        )
+
     def job_list(self, status: str | None = None) -> list[dict]:
         return _plain(repo.list_jobs(self.conn, status))
 
@@ -501,7 +514,7 @@ def create_server(
     mcp = MCPServer("jobpilot")
     for name in (
         "agenda", "agenda_wait",
-        "job_capture", "job_get", "job_list", "job_approve_resume",
+        "job_capture", "job_get", "job_list", "job_set_details", "job_approve_resume",
         "job_approve_submit", "job_abandon", "job_delete",
         "job_mark_manual_submitted",
         "job_tailor_context", "job_tailor_submit", "job_glance",

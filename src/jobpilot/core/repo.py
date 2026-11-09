@@ -183,6 +183,43 @@ def update_job_capture(
     return get_job(conn, job_id)
 
 
+def set_job_details(
+    conn: sqlite3.Connection,
+    job_id: int,
+    actor: str,
+    *,
+    company: str | None = None,
+    title: str | None = None,
+) -> Job:
+    """Correct the employer and role by hand, for a capture that never read
+    the posting (browser down, sign-in wall). Only the fields given change;
+    the previous values go on the timeline."""
+    job = get_job(conn, job_id)
+    company = company.strip() if company else None
+    title = title.strip() if title else None
+    if not company and not title:
+        raise ValueError("give a company, a title, or both")
+    new_company = company or job.company
+    new_title = title or job.title
+    with conn:
+        conn.execute(
+            "UPDATE job SET company = ?, title = ?, updated_at = ? WHERE id = ?",
+            (new_company, new_title, utcnow(), job_id),
+        )
+        events.append(
+            conn,
+            actor=actor,
+            kind="job_details_set",
+            job_id=job_id,
+            payload={
+                "company": new_company,
+                "title": new_title,
+                "previous": {"company": job.company, "title": job.title},
+            },
+        )
+    return get_job(conn, job_id)
+
+
 def set_tab_state(conn: sqlite3.Connection, job_id: int, tab_state: str, actor: str) -> Job:
     if tab_state not in ("none", "open", "parked", "lost"):
         raise ValueError(f"tab_state must be none|open|parked|lost, got {tab_state!r}")
