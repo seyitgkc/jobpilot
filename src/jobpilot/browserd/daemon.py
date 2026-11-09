@@ -94,29 +94,25 @@ class BrowserDaemon:
 
             await self._context.add_init_script("""
                 (() => {
-                    // 1. Hide navigator.webdriver on Prototype
                     Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', {
                         get: () => undefined,
                         enumerable: true,
                         configurable: true
                     });
 
-                    // 2. Define standard Chrome Brands
                     const chromeBrands = [
                         { brand: 'Not A;Brand', version: '99' },
                         { brand: 'Chromium', version: '151' },
                         { brand: 'Google Chrome', version: '151' }
                     ];
 
-                    // Standard Brave Client Hints (Brave reports both Chromium and Brave brands)
                     const braveBrands = [
                         { brand: 'Not A;Brand', version: '99' },
                         { brand: 'Chromium', version: '131' },
                         { brand: 'Brave', version: '131' }
                     ];
 
-                    // 3. Robust userAgentData override (Works even if Brave disabled NavigatorUAData)
-                    const mockUserAgentData = {
+                    const uaData = {
                         brands: braveBrands,
                         mobile: false,
                         platform: 'macOS',
@@ -137,9 +133,8 @@ class BrowserDaemon:
                         })
                     };
 
-                    // Override userAgentData directly on Navigator prototype
                     Object.defineProperty(Navigator.prototype, 'userAgentData', {
-                        get: () => mockUserAgentData,
+                        get: () => uaData,
                         enumerable: true,
                         configurable: true
                     });
