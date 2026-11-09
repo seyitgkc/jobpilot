@@ -65,6 +65,29 @@
   </div>
 
   <div class="card">
+    <h2>Correct the status</h2>
+    <p class="muted">
+      For a status that is wrong rather than one that moved on: mail matched
+      to the wrong job, or a step recorded that never happened. The reason
+      goes on the timeline.
+    </p>
+    <form method="post" action="/jobs/{{ job.id }}/correct-status"
+          onsubmit="return confirm('Set this status by hand? This records a correction, not a move.')">
+      <label>Status
+        <select name="status">
+          {% for value in correctable_statuses %}
+          <option value="{{ value }}">{{ value|human }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Reason
+        <input name="reason" required placeholder="why the stored status is wrong">
+      </label>
+      <button>Correct status</button>
+    </form>
+  </div>
+
+  <div class="card">
     <h2>Gates</h2>
     <form method="post" action="/jobs/{{ job.id }}/gates">
       <label>Resume review

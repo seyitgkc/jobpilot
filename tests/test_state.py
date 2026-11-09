@@ -4,6 +4,7 @@ import pytest
 
 from conftest import force_status
 from jobpilot.core import events, repo, settings, state
+from jobpilot.util import from_json
 
 # Expected legality, written out independently of the implementation table.
 LEGAL = {
@@ -175,3 +176,69 @@ class TestGates:
         job = make_job(conn, status="tailored", gates="inherit")
         with pytest.raises(state.GateNotSatisfied):
             state.transition(conn, job.id, "filling", "claude")
+
+
+def test_correct_status_walks_back_a_one_way_move(conn):
+    # Mail matched to the wrong job acknowledged it; the employer never wrote.
+    job = make_job(conn, status="acknowledged")
+    assert not state.is_legal(job.status, "submitted_manually")
+
+    corrected = state.correct_status(
+        conn, job.id, "submitted_manually", "owner",
+        "acknowledged by a mail that belonged to another job",
+    )
+
+    assert corrected.status == "submitted_manually"
+    entry = [e for e in events.timeline(conn, job.id) if e.kind == "status_corrected"][-1]
+    payload = from_json(entry.payload)
+    assert payload["from"] == "acknowledged"
+    assert payload["to"] == "submitted_manually"
+    assert "another job" in payload["reason"]
+
+
+def test_a_correction_is_not_recorded_as_a_move(conn):
+    job = make_job(conn, status="acknowledged")
+    state.correct_status(conn, job.id, "submitted", "owner", "wrong mail")
+    kinds = [e.kind for e in events.timeline(conn, job.id)]
+    assert "status_corrected" in kinds
+    assert "status_changed" not in kinds
+
+
+def test_a_correction_needs_a_reason(conn):
+    job = make_job(conn, status="acknowledged")
+    for reason in ("", "   "):
+        with pytest.raises(ValueError):
+            state.correct_status(conn, job.id, "submitted", "owner", reason)
+    assert repo.get_job(conn, job.id).status == "acknowledged"
+
+
+def test_a_correction_rejects_an_unknown_or_unchanged_status(conn):
+    job = make_job(conn, status="acknowledged")
+    with pytest.raises(ValueError):
+        state.correct_status(conn, job.id, "winning", "owner", "typo")
+    with pytest.raises(ValueError):
+        state.correct_status(conn, job.id, "acknowledged", "owner", "no change")
+
+
+def test_a_correction_cannot_slip_past_the_approval_gates(conn):
+    # Otherwise "correcting" to submitting would be a way around the gate the
+    # owner keeps on submission.
+    job = make_job(conn, status="filled", gates="on")
+    with pytest.raises(state.GateNotSatisfied):
+        state.correct_status(conn, job.id, "submitting", "owner", "already sent it")
+    assert repo.get_job(conn, job.id).status == "filled"
+
+    state.approve_submit(conn, job.id, "owner")
+    corrected = state.correct_status(
+        conn, job.id, "submitting", "owner", "already sent it"
+    )
+    assert corrected.status == "submitting"
+
+
+def test_correcting_into_a_post_submit_status_drops_the_tab(conn):
+    job = make_job(conn, status="filled")
+    repo.set_tab_state(conn, job.id, "lost", "owner")
+    corrected = state.correct_status(
+        conn, job.id, "submitted_manually", "owner", "sent by hand last week"
+    )
+    assert corrected.tab_state == "none"

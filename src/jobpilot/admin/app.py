@@ -192,6 +192,9 @@ def create_app(
             timeline=list(reversed(events.timeline(conn, job_id))),
             has_glance=tailor.glance(conn, paths, config, job_id) is not None,
             abandonable=state.is_legal(job.status, "abandoned"),
+            correctable_statuses=sorted(
+                status for status in state.STATES if status != job.status
+            ),
         )
 
     @app.post("/jobs/{job_id}/submit")
@@ -230,6 +233,21 @@ def create_app(
         try:
             resolve.mark_submitted_manually(conn, job_id, "owner")
         except state.IllegalTransition as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return back_to_job(job_id)
+
+    @app.post("/jobs/{job_id}/correct-status")
+    def correct_status_route(
+        request: Request,
+        job_id: int,
+        status: str = Form(...),
+        reason: str = Form(...),
+    ):
+        conn = db(request)
+        load_job(conn, job_id)
+        try:
+            state.correct_status(conn, job_id, status, "owner", reason)
+        except (ValueError, state.GateNotSatisfied) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return back_to_job(job_id)
 

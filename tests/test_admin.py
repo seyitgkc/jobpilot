@@ -559,3 +559,35 @@ def test_settings_page_and_gate_toggle(web):
         data={"resume_glance": "maybe", "submit_approval": "on", "auto_submit": "off"},
     )
     assert bad.status_code == 400
+
+
+def test_job_page_corrects_a_wrong_status(web, paths):
+    client, conn = web
+    job = seed_job(conn, paths)
+    state.transition(conn, job.id, "manual_required", "owner")
+    state.transition(conn, job.id, "submitted_manually", "owner")
+    state.transition(conn, job.id, "acknowledged", "owner")
+
+    page = client.get(f"/jobs/{job.id}")
+    assert "Correct the status" in page.text
+
+    response = client.post(
+        f"/jobs/{job.id}/correct-status",
+        data={"status": "submitted_manually", "reason": "mail belonged to another job"},
+    )
+    assert response.status_code == 303
+    assert repo.get_job(conn, job.id).status == "submitted_manually"
+
+
+def test_the_job_page_refuses_a_correction_with_no_reason(web, paths):
+    client, conn = web
+    job = seed_job(conn, paths)
+    state.transition(conn, job.id, "manual_required", "owner")
+    state.transition(conn, job.id, "submitted_manually", "owner")
+
+    response = client.post(
+        f"/jobs/{job.id}/correct-status",
+        data={"status": "acknowledged", "reason": "  "},
+    )
+    assert response.status_code == 400
+    assert repo.get_job(conn, job.id).status == "submitted_manually"

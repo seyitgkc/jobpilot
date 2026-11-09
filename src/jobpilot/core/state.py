@@ -2,7 +2,9 @@
 
 job.status is written here and nowhere else. transition() validates the edge,
 enforces the two approval gates, updates the row, and appends the event in one
-transaction. "blocked" is not a status: it is derived from open blocker rows.
+transaction. correct_status() is the repair path for a status that was set on
+bad evidence, and skips the edge check alone. "blocked" is not a status: it is
+derived from open blocker rows.
 
 The mail-driven tail is a graph rather than the straight
 acknowledged -> in_process line: a rejection or an interview invitation can
@@ -125,6 +127,52 @@ def transition(
         )
     # Past submission the tab has no further use, so a tab that went missing
     # stops being something to reopen.
+    if to_status in TAB_IRRELEVANT and job.tab_state != "none":
+        repo.set_tab_state(conn, job_id, "none", actor)
+    return repo.get_job(conn, job_id)
+
+
+def correct_status(
+    conn: sqlite3.Connection,
+    job_id: int,
+    to_status: str,
+    actor: str,
+    reason: str,
+) -> Job:
+    """Set a status the edges do not allow, to repair a record that is wrong.
+
+    The edges describe how an application really moves, and the mail-driven
+    tail is deliberately one-way: an employer does not un-acknowledge. That
+    makes a status set on bad evidence, a mail matched to the wrong job say,
+    impossible to take back through transition(). This is the way back. It is
+    a correction of the record rather than a move, so it carries a reason and
+    lands on the timeline as its own kind.
+
+    The approval gates still hold. A correction is for saying what already
+    happened, and letting one land on filling or submitting unapproved would
+    turn it into a way around the gates instead.
+    """
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("a correction needs a reason")
+    if to_status not in STATES:
+        raise ValueError(f"unknown status {to_status!r}")
+    job = repo.get_job(conn, job_id)
+    if job.status == to_status:
+        raise ValueError(f"job {job_id} is already {to_status}")
+    _check_gates(conn, job, to_status)
+    with conn:
+        conn.execute(
+            "UPDATE job SET status = ?, updated_at = ? WHERE id = ?",
+            (to_status, utcnow(), job_id),
+        )
+        events.append(
+            conn,
+            actor=actor,
+            kind="status_corrected",
+            job_id=job_id,
+            payload={"from": job.status, "to": to_status, "reason": reason},
+        )
     if to_status in TAB_IRRELEVANT and job.tab_state != "none":
         repo.set_tab_state(conn, job_id, "none", actor)
     return repo.get_job(conn, job_id)

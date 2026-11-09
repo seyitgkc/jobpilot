@@ -165,6 +165,15 @@ class JobpilotApi:
         repo.delete_job(self.conn, self.paths, job_id, "owner")
         return {"deleted": job_id}
 
+    def job_correct_status(self, job_id: int, status: str, reason: str) -> dict:
+        """Repair a status that is wrong, where the normal edges cannot get
+        back. The mail-driven tail is one-way, so a message matched to the
+        wrong job leaves a status nothing else can undo. Needs a reason, and
+        records one; the approval gates still hold."""
+        return _plain(
+            state.correct_status(self.conn, job_id, status, "owner", reason)
+        )
+
     def job_mark_manual_submitted(self, job_id: int, note: str = "") -> dict:
         return _plain(
             resolve.mark_submitted_manually(self.conn, job_id, "owner", note or None)
@@ -527,7 +536,7 @@ def create_server(
         "agenda", "agenda_wait",
         "job_capture", "job_get", "job_list", "job_set_details", "job_approve_resume",
         "job_approve_submit", "job_abandon", "job_delete",
-        "job_mark_manual_submitted",
+        "job_mark_manual_submitted", "job_correct_status",
         "job_tailor_context", "job_tailor_submit", "job_glance",
         "fact_add", "fact_gaps_ask", "fact_gaps_resolve",
         "form_extract", "form_map_context", "form_fill", "job_submit",
