@@ -513,3 +513,137 @@ def test_aliases_skip_ids_and_role_titles():
         canonical_url = url
 
     assert mail.aliases(Stub()) == {"xanadu"}
+
+
+def test_a_generic_word_in_the_company_name_does_not_claim_the_mail(conn, paths):
+    # The agency is recorded under its full name, and "recruitment" turns up
+    # in ordinary recruiting mail from everyone else.
+    job = make_job(conn, company="BackStretch Recruitment Group", title="Backend Engineer")
+    stored = mail.store_message(
+        conn, paths,
+        eml(
+            message_id="<gitlab@greenhouse-mail.io>",
+            sender="GitLab Recruitment <no-reply@greenhouse-mail.io>",
+            subject="Thank you for applying to GitLab",
+            body=(
+                "Thank you for applying to GitLab. Our recruitment team will "
+                "review your application for the Backend Engineer role."
+            ),
+        ),
+        "worker",
+    )
+    score = mail.score_job(conn, stored, mail.body_text(paths, stored), job)
+    assert score < Config().mail.match_threshold, score
+
+
+def test_the_distinctive_part_of_the_name_still_matches(conn, paths):
+    job = make_job(conn, company="BackStretch Recruitment Group", title="Backend Engineer")
+    stored = mail.store_message(
+        conn, paths,
+        eml(
+            message_id="<backstretch@greenhouse-mail.io>",
+            sender="BackStretch <no-reply@greenhouse-mail.io>",
+            subject="Thank you for applying to BackStretch",
+            body="We received your application for the Backend Engineer role.",
+        ),
+        "worker",
+    )
+    score = mail.score_job(conn, stored, mail.body_text(paths, stored), job)
+    assert score >= Config().mail.match_threshold, score
+
+
+def test_a_scraped_page_title_does_not_match_on_its_location(conn, paths):
+    # Capture stored the LinkedIn page title as the company. "Canada" in it
+    # must not claim another employer's mail that happens to say Canada.
+    job = make_job(
+        conn,
+        company="RemitBee™ — Mississauga, Ontario, Canada | LinkedIn Jobs",
+        title="Back End Developer",
+    )
+    stored = mail.store_message(
+        conn, paths,
+        eml(
+            message_id="<clover@us.greenhouse-mail.io>",
+            sender="no-reply@us.greenhouse-mail.io",
+            subject="Thank you for applying to Clover Health!",
+            body=(
+                "We received your application for the Senior Software Developer "
+                "- Canada role. Our recruiting team is reviewing your "
+                "application now and your background looks like a strong match."
+            ),
+        ),
+        "worker",
+    )
+    score = mail.score_job(conn, stored, mail.body_text(paths, stored), job)
+    assert score < Config().mail.match_threshold, score
+
+
+def test_linkedin_is_never_read_as_the_employer():
+    class Stub:
+        url = "https://www.linkedin.com/jobs/view/4486783216/"
+        canonical_url = url
+
+    # Every LinkedIn-captured job would otherwise share these aliases and
+    # match each other's mail.
+    assert mail.aliases(Stub()) == set()
+
+
+def test_stale_heuristic_matches_are_dropped_after_a_scoring_fix(conn, paths):
+    job = make_job(conn, company="BackStretch Recruitment Group", title="Backend Engineer")
+    stored = mail.store_message(
+        conn, paths,
+        eml(
+            message_id="<stale@greenhouse-mail.io>",
+            sender="GitLab <no-reply@greenhouse-mail.io>",
+            subject="Thank you for applying to GitLab",
+            body="Our recruitment team will review your Backend Engineer application.",
+        ),
+        "worker",
+    )
+    # Filed under this job by the scoring that used to accept "recruitment".
+    conn.execute(
+        "UPDATE mail SET job_id = ?, match_score = 0.844, match_method = 'heuristic',"
+        " status = 'auto_matched' WHERE id = ?",
+        (job.id, stored.id),
+    )
+    conn.commit()
+
+    result = mail.drop_stale_matches(conn, paths, Config(), "claude")
+
+    assert result["checked"] == 1
+    assert [item["mail_id"] for item in result["dropped"]] == [stored.id]
+    after = mail.get_mail(conn, stored.id)
+    assert after.job_id is None
+    assert after.status == "needs_assignment"
+    assert after.match_method is None
+
+
+def test_dropping_stale_matches_leaves_evidence_alone(conn, paths):
+    job = make_job(conn, company="Acme", title="Platform Engineer")
+    manual = mail.store_message(
+        conn, paths, eml(message_id="<manual@ats.example>"), "worker"
+    )
+    mail.assign(conn, paths, manual.id, job.id, "owner")
+    classified = mail.store_message(
+        conn, paths,
+        eml(
+            message_id="<done@greenhouse-mail.io>",
+            subject="Thank you for applying to Someone Else",
+            body="Unrelated.",
+        ),
+        "worker",
+    )
+    conn.execute(
+        "UPDATE mail SET job_id = ?, match_score = 0.8, match_method = 'heuristic',"
+        " status = 'auto_matched', classification = 'confirmation' WHERE id = ?",
+        (job.id, classified.id),
+    )
+    conn.commit()
+
+    result = mail.drop_stale_matches(conn, paths, Config(), "claude")
+
+    # A manual assignment is evidence the scoring does not have, and a
+    # classified message has already had its effect on the job.
+    assert result["dropped"] == []
+    assert mail.get_mail(conn, manual.id).job_id == job.id
+    assert mail.get_mail(conn, classified.id).job_id == job.id

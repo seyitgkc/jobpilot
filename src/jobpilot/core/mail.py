@@ -246,7 +246,22 @@ _GENERIC_URL_PARTS = frozenset(
     {"www", "careers", "career", "jobs", "job", "apply", "boards", "board",
      "hire", "hiring", "talent", "recruiting", "recruit", "opportunities",
      "openings", "position", "positions", "vacancy", "vacancies", "index",
-     "search", "listing", "listings", "detail", "details", "posting", "en-us"}
+     "search", "listing", "listings", "detail", "details", "posting", "view",
+     "en-us"}
+)
+
+# Words a company name carries without naming the employer: page furniture
+# scraped into the name, corporate suffixes, and the filler common to agency
+# names. Ordinary recruiting mail is full of these, so one of them matching
+# says nothing about which application the mail answers.
+_GENERIC_COMPANY_PARTS = _GENERIC_URL_PARTS | frozenset(
+    {"recruitment", "recruiter", "recruiters", "staffing", "agency",
+     "consulting", "consultancy", "group", "holdings", "partners",
+     "associates", "company", "corporation", "incorporated", "limited",
+     "corp", "llc", "ltd", "gmbh", "plc", "solutions", "services",
+     "technologies", "technology", "global", "international", "worldwide",
+     "digital", "labs", "team", "people", "online", "linkedin", "indeed",
+     "remote", "canada", "ontario", "toronto"}
 )
 _TENANT_SUFFIX = re.compile(r"-[0-9a-f]{5,}$")
 _HEXISH = re.compile(r"^[0-9a-f-]{12,}$", re.IGNORECASE)
@@ -255,6 +270,7 @@ _HEXISH = re.compile(r"^[0-9a-f-]{12,}$", re.IGNORECASE)
 # Wider than ATS_DOMAINS, which exists to score a sender rather than to name
 # a company: taking "hibob" for an employer would match every hibob customer.
 _BOARD_DOMAINS = ATS_DOMAINS + (
+    "linkedin.com",
     "hibob.com",
     "applytojob.com",
     "recruiterflow.com",
@@ -321,7 +337,12 @@ def score_job(
     ).lower()
     score = 0.0
     company_tokens = {t for t in _tokens(job.company) if len(t) >= 4} or _tokens(job.company)
-    named = bool(company_tokens) and any(token in haystack for token in company_tokens)
+    # Only a distinctive word can say the mail names this employer. A company
+    # recorded as "BackStretch Recruitment Group", or under a scraped page
+    # title, otherwise matches every mail carrying "recruitment" or "careers",
+    # and a wrong match here advances the job on the strength of it.
+    distinctive = company_tokens - _GENERIC_COMPANY_PARTS
+    named = bool(distinctive) and any(token in haystack for token in distinctive)
     if named:
         score += 0.5
     else:
@@ -516,6 +537,60 @@ def likely_relevant(conn: sqlite3.Connection, mail: Mail, body: str = "") -> boo
         if tokens and any(token in haystack for token in tokens):
             return True
     return False
+
+
+def drop_stale_matches(
+    conn: sqlite3.Connection, paths: DataPaths, config: Config, actor: str
+) -> dict:
+    """Re-score every heuristic match that has not been classified yet and
+    detach the ones the current scoring no longer supports.
+
+    A match is scored once, at sync, so a correction to the scoring leaves
+    the mail already filed under the wrong job. Classifying such a message
+    advances that job, and most of those moves cannot be reversed, so the
+    stale matches are worth clearing rather than stepping around. Only
+    unclassified, heuristically matched mail is touched: a manual, req_id or
+    thread assignment is evidence this scoring does not have, and anything
+    already classified has had its effect on the job.
+    """
+    dropped = []
+    rows = conn.execute(
+        "SELECT * FROM mail WHERE classification IS NULL"
+        " AND job_id IS NOT NULL AND match_method = 'heuristic'"
+        " ORDER BY id"
+    ).fetchall()
+    for row in rows:
+        mail = Mail.from_row(row)
+        job = repo.get_job(conn, mail.job_id)
+        score = score_job(conn, mail, body_text(paths, mail), job)
+        if score >= config.mail.match_threshold:
+            continue
+        with conn:
+            conn.execute(
+                "UPDATE mail SET job_id = NULL, match_score = NULL,"
+                " match_method = NULL, status = 'needs_assignment'"
+                " WHERE id = ?",
+                (mail.id,),
+            )
+            events.append(
+                conn, actor=actor, kind="mail_match_dropped", job_id=job.id,
+                payload={
+                    "mail_id": mail.id,
+                    "was_score": mail.match_score,
+                    "rescored": score,
+                },
+            )
+        dropped.append(
+            {
+                "mail_id": mail.id,
+                "job_id": job.id,
+                "company": job.company,
+                "subject": mail.subject,
+                "was_score": mail.match_score,
+                "rescored": score,
+            }
+        )
+    return {"checked": len(rows), "dropped": dropped}
 
 
 def advance_classified(conn: sqlite3.Connection, job_id: int, actor: str) -> None:

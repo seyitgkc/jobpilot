@@ -476,6 +476,17 @@ class JobpilotApi:
             payload["injection_warnings"] = suspicious
         return payload
 
+    def mail_drop_stale_matches(self) -> dict:
+        """Re-score unclassified heuristic mail matches and detach the ones
+        the current scoring no longer supports. Run after the matcher or a
+        job's company name changes: a match is scored once, at sync, and
+        classifying a wrongly matched message advances the wrong job."""
+        return _plain(
+            mail_module.drop_stale_matches(
+                self.conn, self.paths, self.config, "claude"
+            )
+        )
+
     def mail_classify(self, mail_id: int, classification: str) -> dict:
         return _plain(
             mail_module.set_classification(self.conn, mail_id, classification, "owner")
@@ -524,7 +535,7 @@ def create_server(
         "blocker_mark_manual_resolved",
         "tab_focus", "tab_screenshot", "tab_replay",
         "mail_sync", "mail_unassigned", "mail_assign", "mail_list",
-        "mail_classify_context", "mail_classify",
+        "mail_classify_context", "mail_classify", "mail_drop_stale_matches",
         "answer_bank_list", "answer_bank_set",
         "rules_list", "rules_propose", "rules_set_status",
         "blacklist_list", "blacklist_add", "blacklist_remove",
