@@ -47,6 +47,32 @@ _IDENTITY_FIELDS = (
 # Past a few hops the control is looping rather than leading anywhere.
 _APPLY_GATE_HOPS = 3
 
+# Words an application form asks for. A posting page carries controls of its
+# own: a site search box, a language picker, a cookie checkbox. Those read as
+# a form unless something is asked of the applicant.
+_APPLICATION_LABEL = re.compile(
+    r"(?i)\b(name|email|e-mail|phone|mobile|resume|cv|cover\s*letter|"
+    r"portfolio|linkedin|github|website|address|city|country|postal|zip|"
+    r"salary|compensation|notice|availab|start\s*date|authoriz|eligib|"
+    r"sponsor|visa|work\s*permit|citizen|relocat|experience|education|"
+    r"degree|school|university|employer|referr|gender|race|ethnic|veteran|"
+    r"disabilit|pronoun|why|tell\s*us|describe)\b"
+)
+
+
+def _looks_like_application(schema: FormSchema) -> bool:
+    """Whether the extracted fields are an application form rather than the
+    furniture of the page it sits on. A posting page gated behind an apply
+    step still yields a search box and a language select, so counting fields
+    is not enough to say the form has been reached."""
+    for form_field in schema.fields:
+        if form_field.required or form_field.type in ("file", "textarea"):
+            return True
+        if form_field.label and _APPLICATION_LABEL.search(form_field.label):
+            return True
+    return False
+
+
 _CONFIRMATION_REF = re.compile(
     r"(?:confirmation|reference|application)\s*(?:number|id|code)\s*[:#]?\s*([A-Za-z0-9-]{4,})",
     re.IGNORECASE,
@@ -121,14 +147,15 @@ def extract_form(
     # control is part of the extracted schema, so clicking it stays within
     # the mapped-verb rules. Boards chain these steps and some send the
     # applicant to another site entirely, so keep following while the page
-    # offers a way forward and no fields have appeared. A page carrying no
-    # fields counts even when something submit-shaped was matched, because
-    # skip links and search buttons read as submit controls.
+    # offers a way forward and no application form has appeared. Fields alone
+    # do not settle it, even alongside something submit-shaped: a posting page
+    # carries a search box, a language select and a skip link, and those read
+    # as a form with a submit control.
     seen_urls = {page.get("url")}
     for _ in range(_APPLY_GATE_HOPS):
         if schema.apply_button is None:
             break
-        if schema.fields and schema.submit_button is not None:
+        if _looks_like_application(schema) and schema.submit_button is not None:
             break
         resolution = client.resolve(job.id, schema.model_dump())
         apply_descriptor = resolution["resolved"].get("apply")
@@ -151,19 +178,28 @@ def extract_form(
         schema, method = adapters.extract_schema(job, raw_html, **kwargs)
         url = page.get("url")
         # A control that reopens the page it sits on would otherwise loop.
-        if url in seen_urls and not schema.fields:
+        if url in seen_urls and not _looks_like_application(schema):
             break
         seen_urls.add(url)
 
     result.schema = schema
-    if not schema.fields:
+    if not _looks_like_application(schema):
+        # Typing into whatever the page happens to offer is worse than
+        # stopping: on a posting page those controls are the site's own
+        # search box and language picker.
+        found = ", ".join(
+            form_field.label or form_field.field_id
+            for form_field in schema.fields[:6]
+        )
         result.blockers.append(
             blockers.raise_blocker(
                 conn, job.id, "extraction_failed", actor,
                 question=(
-                    "No form fields were found on the application page. Open "
-                    "the tab, check where the form lives, and adjust before "
-                    "retrying."
+                    "No application form was found on the page"
+                    + (f"; the only controls there are {found}" if found else "")
+                    + ". The form may sit behind an apply step that leads off "
+                    "this site. Open the tab, check where the form lives, and "
+                    "adjust before retrying."
                 ),
             )
         )

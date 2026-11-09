@@ -702,3 +702,54 @@ def test_apply_gate_gives_up_on_a_control_that_goes_nowhere(
     assert not result.ok
     assert result.blockers[0].kind == "extraction_failed"
     assert client.hop <= 3
+
+
+# A posting page whose form lives on the employer's own site: the controls
+# here all belong to the job board, not to any application.
+BOARD_CHROME_HTML = """
+<header>
+  <label for="q">Search</label><input id="q" name="q" type="text">
+  <input id="remember" name="remember" type="checkbox">
+  <label for="lang">Select language</label>
+  <select id="lang" name="lang"><option>English</option><option>Francais</option></select>
+  <button type="submit">Home</button>
+</header>
+<h1>Go Developer (Remote)</h1>
+<p>Responses managed off this site.</p>
+<a href="https://jobs.employer.example/apply/42">Apply</a>
+"""
+
+
+def test_board_chrome_is_not_mistaken_for_the_application_form(
+    conn, paths, tailored_job
+):
+    # The page offers a search box, a language select and a Home button, so
+    # counting fields says "form" and the apply redirect is never followed.
+    client = ChainedGateClient([BOARD_CHROME_HTML, FORM_HTML])
+    result = extract(conn, paths, client, tailored_job)
+
+    assert result.ok, [b.question for b in result.blockers]
+    field_ids = {field.field_id for field in result.schema.fields}
+    assert "first_name" in field_ids and "resume" in field_ids
+    assert "q" not in field_ids and "lang" not in field_ids
+
+
+def test_nothing_is_typed_into_a_page_that_only_offers_its_own_controls(
+    conn, paths, tailored_job
+):
+    # Every hop stays on the board's chrome, so this must park rather than
+    # type the applicant's details into a site search box.
+    client = ChainedGateClient([BOARD_CHROME_HTML])
+    client.archive = lambda job_id: {
+        "html": client.html, "raw_html": client.html,
+        "url": "https://www.example.com/jobs/view/4487910155/", "title": "Apply",
+    }
+    result = extract(conn, paths, client, tailored_job)
+
+    assert not result.ok
+    assert result.blockers[0].kind == "extraction_failed"
+    assert "Search" in result.blockers[0].question
+    assert client.apply_calls == [] or all(
+        action["field_id"] == "apply"
+        for call in client.apply_calls for action in call
+    )
