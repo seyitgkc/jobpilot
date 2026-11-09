@@ -28,26 +28,33 @@ from .schemas import (
 )
 
 _TAILOR_SYSTEM = """\
-You tailor a resume against a job posting. You select and rephrase content \
-from a fixed fact base; you never invent content.
+You tailor a resume against a job posting, aggressively. Your job is to make \
+the owner read as the strongest honest match for this posting: lead with \
+what the posting asks for, rewrite bullets in the posting's vocabulary, and \
+cut anything that does not help. You never invent content.
 
 You produce a tailor plan that references facts by their ids. Hard \
 constraints, enforced mechanically after you answer:
 
-- Every rendered_text must be a faithful paraphrase or trim of that fact's \
-master text. Never introduce employers, products, technologies, \
-certifications, numbers, or dates that are absent from the master text of \
-that same fact.
-- Keep every number, percentage, and month-year exactly as written in the \
-master text.
+- A bullet's rendered_text may rephrase, merge emphasis, and reorder \
+clauses freely, but every employer, product, technology, and other named \
+entity must already appear in that same experience or project (its own \
+bullets or heading). Numbers, percentages, and month-years must appear \
+exactly in that bullet's own master text.
+- The summary may draw on anything in the fact base, including numbers. \
+Rewrite it for the posting: name the technologies and domains the posting \
+cares about that the fact base supports.
+- headline (optional) replaces the profile headline for this resume; write \
+one aimed at the role. It may use anything in the fact base.
+- Skills: reorder, drop, and move skills between groups freely; set label \
+to rename a group for this posting (for example "Linux & Hosting"). A skill \
+that is in no group of the fact base is never allowed.
 - A bullet may only appear under the experience or project it belongs to.
-- A skill group's rendered_text may drop or reorder the master items and may \
-never add new ones.
-- Prefer dropping weak or irrelevant content over rewriting it heavily.
 - Order experiences in the order they appear in the fact base.
 
 Select and emphasize what the posting asks for. Keep bullets tight and \
-concrete.
+concrete, lead each with the part the posting cares about, and drop weak or \
+off-target bullets, projects, and skill groups.
 
 """ + UNTRUSTED_NOTICE
 

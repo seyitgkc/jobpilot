@@ -82,7 +82,7 @@ def tailor_context(
     repo.get_job(conn, job_id)
     active = rules.active_rules(conn, "tailoring")
     return {
-        "facts": resume.load_facts(paths),
+        "facts": resume.load_facts(paths, job_id),
         "posting_md": _posting_markdown(conn, paths, job_id),
         "constraints": TailorConstraints(
             rules=[rule.text for rule in active],
@@ -108,7 +108,7 @@ def apply_plan(
         compile_fn = latex.compile_tex
     job = repo.get_job(conn, job_id)
     result = TailorResult(job=job, plan=plan)
-    facts = resume.load_facts(paths)
+    facts = resume.load_facts(paths, job_id)
     template_source = resume.load_template_source(paths)
     active = rules.active_rules(conn, "tailoring")
 
@@ -180,7 +180,7 @@ def tailor_job(
     job = repo.get_job(conn, job_id)
     result = TailorResult(job=job)
     posting = _posting_markdown(conn, paths, job_id)
-    facts = resume.load_facts(paths)
+    facts = resume.load_facts(paths, job_id)
     template_source = resume.load_template_source(paths)
     active = rules.active_rules(conn, "tailoring")
     overlap_min = config.validator.token_overlap_min
@@ -352,7 +352,7 @@ def glance(
     if application is None or application.tailor_plan_artifact_id is None:
         return None
     plan_artifact = repo.get_artifact(conn, application.tailor_plan_artifact_id)
-    facts = resume.load_facts(paths)
+    facts = resume.load_facts(paths, job_id)
     plan = load_plan_artifact(paths, plan_artifact)
     report = honesty.validate_plan(
         plan, facts, rules.active_rules(conn, "tailoring"),

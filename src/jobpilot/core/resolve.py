@@ -51,6 +51,11 @@ def answer_blocker(
     blocker = blockers.get_blocker(conn, blocker_id)
     if blocker.status not in ("open", "answered"):
         raise ValueError(f"blocker {blocker_id} is {blocker.status}, not answerable")
+    if blocker.kind == "fact_gap":
+        raise ValueError(
+            f"blocker {blocker_id} is a fact_gap blocker; answer it with "
+            f"fact_gaps_resolve"
+        )
     known = _spec_fields(blocker)
     for action in actions:
         if action.get("verb") not in ANSWER_VERBS:
@@ -105,6 +110,11 @@ def execute_blocker(
     by field first; any mismatch becomes a drift blocker and nothing is
     typed."""
     blocker = blockers.get_blocker(conn, blocker_id)
+    if blocker.kind == "fact_gap":
+        raise ValueError(
+            f"blocker {blocker_id} is a fact_gap blocker; it touches no page. "
+            f"Resolve it with fact_gaps_resolve"
+        )
     if blocker.status != "answered":
         raise ValueError(f"blocker {blocker_id} is {blocker.status}; answer it first")
     agreed = from_json(blocker.agreed_action) or {}

@@ -36,7 +36,7 @@ match_threshold = 0.75
 mark_seen = false
 
 [validator]
-token_overlap_min = 0.35
+token_overlap_min = 0.25
 
 [admin]
 port = 8378

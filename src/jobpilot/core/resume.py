@@ -1,7 +1,10 @@
 """Fact base loading, LaTeX rendering, and resume diff data.
 
 facts.yaml and an optional template override live in data/resume_master/;
-a packaged default template is used otherwise. The renderer builds a fully
+a packaged default template is used otherwise. A job may also carry
+facts_extra.yaml in its own directory: facts the owner approved for that
+resume only. add_fact is the single writer for both files and is only called
+after the owner has decided. The renderer builds a fully
 escaped context in Python and keeps the Jinja template dumb, so template
 errors stay template errors and content errors stay content errors.
 """
@@ -57,17 +60,107 @@ def _tex_dates(dates: str | None) -> str:
     return tex_escape(dates).replace(" - ", " -- ")
 
 
-def load_facts(paths: DataPaths) -> FactBase:
-    file = paths.resume_master_dir / "facts.yaml"
+FACT_SCOPES = ("master", "job")
+_EXTRA_FILE = "facts_extra.yaml"
+
+
+def _master_file(paths: DataPaths):
+    return paths.resume_master_dir / "facts.yaml"
+
+
+def _extra_file(paths: DataPaths, job_id: int):
+    return paths.job_dir(job_id) / _EXTRA_FILE
+
+
+def _job_extra_facts(paths: DataPaths, job_id: int | None) -> list[dict]:
+    if job_id is None:
+        return []
+    file = _extra_file(paths, job_id)
+    if not file.exists():
+        return []
+    data = yaml.safe_load(file.read_text()) or {}
+    return list(data.get("facts") or [])
+
+
+def load_facts(paths: DataPaths, job_id: int | None = None) -> FactBase:
+    """The master fact base, plus the job's owner-approved extras when a
+    job is given."""
+    file = _master_file(paths)
     if not file.exists():
         raise ResumeSetupError(
             f"fact base not found at {file}; create it before tailoring"
         )
     try:
         data = yaml.safe_load(file.read_text())
+        extras = _job_extra_facts(paths, job_id)
+        if extras:
+            data = dict(data)
+            data["facts"] = list(data.get("facts") or []) + extras
         return FactBase.model_validate(data)
     except Exception as error:
         raise ResumeSetupError(f"invalid facts.yaml: {error}") from error
+
+
+def _fact_yaml_item(fact: Fact) -> str:
+    """One fact as a YAML list item indented to sit under facts:."""
+    data = fact.model_dump(exclude_defaults=True)
+    data = {"id": fact.id, "kind": fact.kind} | data
+    dumped = yaml.safe_dump(
+        [data], sort_keys=False, allow_unicode=True, width=10_000
+    )
+    return "".join("  " + line + "\n" for line in dumped.splitlines())
+
+
+def add_fact(
+    paths: DataPaths, fact: Fact, scope: str, job_id: int | None = None
+) -> FactBase:
+    """Append an owner-approved fact. scope="master" appends to facts.yaml
+    (the owner's comments and layout are kept; the entry goes at the end of
+    the facts list); scope="job" writes the job's facts_extra.yaml so only
+    that job's resume can use it. The merged fact base is validated before
+    anything is written, so a bad id or parent never reaches disk. Returns
+    the fact base as the job now sees it."""
+    if scope not in FACT_SCOPES:
+        raise ValueError(f"scope must be one of {FACT_SCOPES}, got {scope!r}")
+    if scope == "job" and job_id is None:
+        raise ValueError("a job-scoped fact needs a job_id")
+    current = load_facts(paths, job_id)
+    candidate = FactBase.model_validate(
+        {
+            "profile": current.profile.model_dump(),
+            "facts": [f.model_dump() for f in current.facts] + [fact.model_dump()],
+        }
+    )
+
+    if scope == "master":
+        file = _master_file(paths)
+        original = file.read_text()
+        separator = "" if original.endswith("\n") else "\n"
+        file.write_text(original + separator + _fact_yaml_item(fact))
+        try:
+            reloaded = load_facts(paths, job_id)
+            if reloaded.by_id(fact.id) is None:
+                raise ResumeSetupError(
+                    "facts.yaml does not end with the facts list; add the "
+                    "fact by hand"
+                )
+        except Exception:
+            file.write_text(original)
+            raise
+        return reloaded
+
+    file = _extra_file(paths, job_id)
+    file.parent.mkdir(parents=True, exist_ok=True)
+    extras = _job_extra_facts(paths, job_id) + [
+        fact.model_dump(exclude_defaults=True) | {"id": fact.id, "kind": fact.kind}
+    ]
+    file.write_text(
+        "# Facts the owner approved for this job's resume only.\n"
+        + yaml.safe_dump(
+            {"facts": extras}, sort_keys=False, allow_unicode=True, width=10_000
+        )
+    )
+    return candidate
 
 
 def load_template_source(paths: DataPaths) -> str:
@@ -136,7 +229,7 @@ def _build_sections(facts: FactBase, plan: TailorPlan) -> list[dict]:
                 fact = facts.by_id(item.fact_id)
                 groups.append(
                     {
-                        "label": tex_escape(fact.label or ""),
+                        "label": tex_escape(item.label or fact.label or ""),
                         "entries": tex_escape(item.rendered_text),
                     }
                 )
@@ -187,7 +280,11 @@ def render_tex(facts: FactBase, plan: TailorPlan, template_source: str) -> str:
     template = _jinja_env().from_string(template_source)
     context = {
         "name": tex_escape(facts.profile.name),
-        "headline": tex_escape(facts.profile.headline) if facts.profile.headline else None,
+        "headline": (
+            tex_escape(plan.headline or facts.profile.headline)
+            if (plan.headline or facts.profile.headline)
+            else None
+        ),
         "contact": _contact_line(facts),
         "sections": _build_sections(facts, plan),
     }
@@ -289,9 +386,22 @@ def plan_diff(facts: FactBase, plan: TailorPlan) -> dict:
     def skill_selection() -> dict:
         master = [fact.id for fact in facts.of_kind("skill_group")]
         chosen = [item.fact_id for item in plan.skills]
+        groups = []
+        for item in plan.skills:
+            fact = facts.by_id(item.fact_id)
+            groups.append(
+                {
+                    "fact_id": item.fact_id,
+                    "master_label": fact.label if fact else None,
+                    "label": item.label or (fact.label if fact else None),
+                    "master": fact.text if fact else None,
+                    "rendered": item.rendered_text,
+                }
+            )
         return {
             "included": chosen,
             "dropped": [fact_id for fact_id in master if fact_id not in chosen],
+            "groups": groups,
         }
 
     summary = None
@@ -301,7 +411,11 @@ def plan_diff(facts: FactBase, plan: TailorPlan) -> dict:
             "master": master_summary.text if master_summary else None,
             "rendered": plan.summary.rendered_text,
         }
+    headline = None
+    if plan.headline is not None:
+        headline = {"master": facts.profile.headline, "rendered": plan.headline}
     return {
+        "headline": headline,
         "summary": summary,
         "experiences": _group_diff(facts, "experience", plan.experience),
         "skills": skill_selection(),

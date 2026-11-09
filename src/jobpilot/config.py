@@ -74,7 +74,7 @@ class MailConfig:
 
 @dataclass(frozen=True)
 class ValidatorConfig:
-    token_overlap_min: float = 0.35
+    token_overlap_min: float = 0.25
 
 
 @dataclass(frozen=True)

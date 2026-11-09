@@ -203,3 +203,100 @@ def test_hard_rule_enforced(conn, facts):
     report = validate(plan, facts, active)
     assert "hard_rule" in codes(report)
     assert not report.ok
+
+
+def test_bullet_may_use_entities_from_its_own_experience(facts):
+    plan = with_bullet(
+        facts,
+        "Built the Go payments gateway behind the microservices billing stack, 2M requests per day",
+    )
+    assert validate(plan, facts).ok
+
+
+def test_bullet_may_not_borrow_entities_from_another_experience(facts):
+    plan = with_bullet(
+        facts, "Built the payments gateway in Go on PostgreSQL, 2M requests per day"
+    )
+    report = validate(plan, facts)
+    assert "entity_added" in codes(report)
+    assert any("fact_add" in v.message for v in report.violations)
+
+
+def test_bullet_numbers_stay_local_to_the_bullet(facts):
+    plan = with_bullet(
+        facts, "Built the payments gateway in Go, cutting deploy time 40%"
+    )
+    assert "number_changed" in codes(validate(plan, facts))
+
+
+def test_summary_draws_on_the_whole_fact_base(facts):
+    plan = resume.full_plan(facts).model_copy(
+        update={
+            "summary": RenderedFact(
+                fact_id="summary.main",
+                rendered_text=(
+                    "Backend engineer with 5+ years building Go APIs and "
+                    "PostgreSQL search on Kubernetes, handling 2M requests per day."
+                ),
+            )
+        }
+    )
+    assert validate(plan, facts).ok
+
+
+def test_summary_still_rejects_unknown_entities(facts):
+    plan = resume.full_plan(facts).model_copy(
+        update={
+            "summary": RenderedFact(
+                fact_id="summary.main",
+                rendered_text="Backend engineer with 5+ years building APIs in Rust.",
+            )
+        }
+    )
+    assert "entity_added" in codes(validate(plan, facts))
+
+
+def test_trailing_punctuation_does_not_fake_an_entity(facts):
+    plan = resume.full_plan(facts).model_copy(
+        update={
+            "summary": RenderedFact(
+                fact_id="summary.main",
+                rendered_text="Backend engineer with 5+ years building APIs in Go and C#.",
+            )
+        }
+    )
+    assert validate(plan, facts).ok
+
+
+def test_headline_is_grounded_in_the_fact_base(facts):
+    plan = resume.full_plan(facts).model_copy(
+        update={"headline": "Senior Backend Engineer | Go, PostgreSQL & AWS"}
+    )
+    assert validate(plan, facts).ok
+    bad = plan.model_copy(update={"headline": "Senior Backend Engineer | Rust & Azure"})
+    assert "entity_added" in codes(validate(bad, facts))
+
+
+def test_skills_move_between_groups_and_take_new_labels(facts):
+    plan = resume.full_plan(facts).model_copy(
+        update={
+            "skills": [
+                RenderedFact(
+                    fact_id="skills.infra",
+                    rendered_text="Go, Docker, AWS, SQL",
+                    label="Cloud Backend",
+                )
+            ]
+        }
+    )
+    assert validate(plan, facts).ok
+    bad_label = plan.model_copy(
+        update={
+            "skills": [
+                RenderedFact(
+                    fact_id="skills.infra", rendered_text="Docker", label="Azure Stack"
+                )
+            ]
+        }
+    )
+    assert "entity_added" in codes(validate(bad_label, facts))

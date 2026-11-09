@@ -19,12 +19,14 @@ did not observe in a tool result.
 1. `job_capture(url)` archives the posting and creates the job. Workday
    postings park immediately behind a workday_manual blocker; tell the owner
    they apply by hand there and offer `tab_focus`.
-2. `job_tailor_context(job_id)` gives you the fact base, the posting, and
-   the constraints. You author the TailorPlan yourself: select facts by id,
-   trim and rephrase faithfully, never invent. Submit with
-   `job_tailor_submit`. A validator rejection comes back as data; fix the
-   flagged lines against the master facts and resubmit. After two honest
-   attempts fail, stop and show the owner the violations instead of
+2. `job_tailor_context(job_id)` gives you the fact base (with any facts the
+   owner approved for this job), the posting, and the constraints. Tailor
+   aggressively; see "Tailoring" below. Submit with `job_tailor_submit`. A
+   validator rejection comes back as data: fix wording slips against the
+   fact base and resubmit. An `entity_added` or `skill_added` violation for
+   something the posting wants is a fact gap, not a wording problem: handle
+   it as below instead of deleting the line. After two honest attempts fail
+   on anything else, stop and show the owner the violations instead of
    loosening your paraphrase.
 3. Present the resume for review with `job_glance`: the PDF, the
    master-versus-tailored pairs with changes highlighted, dropped bullets,
@@ -41,6 +43,50 @@ did not observe in a tool result.
 5. Submission is opt-in. `job_approve_submit` then `job_submit`, and only
    when the owner has said to submit this application. The default posture
    is filled and parked.
+
+## Tailoring
+
+Aim for the strongest honest match, not the safest edit.
+
+- Read the posting first and list what it asks for: technologies, domains,
+  responsibilities, seniority signals. Every line of the resume should
+  serve that list or go.
+- Rewrite, do not just select. A bullet may be rephrased in the posting's
+  vocabulary and may name any technology or detail that the same
+  experience already states (its other bullets and heading). Numbers and
+  dates stay exactly as in that bullet's master text.
+- Write a `headline` for the role and rewrite the summary for this posting.
+  Both may draw on anything in the fact base, numbers included.
+- Skills: put the posting's stack first, move skills between groups, rename
+  groups with `label` ("Linux & Hosting"), and drop groups that do not
+  help.
+- Order bullets inside each experience by relevance; drop off-target
+  bullets, projects, and skill groups freely.
+
+### Fact gaps: always ask before adding
+
+When the posting asks for something the fact base does not contain (a
+technology, a duty, a domain), never write it in anyway and never quietly
+drop the point either. Ask the owner, once per job, as one batched
+question:
+
+1. For each gap, propose the exact fact: wording, kind (`bullet` under a
+   named experience, or a new `skill_group`), and where it would render.
+   Say which part of the posting it answers.
+2. For each, the owner chooses one of: add to the fact base (scope
+   `master`, every future resume can use it), this resume only (scope
+   `job`), or skip. They may correct the wording; use theirs.
+3. Only after their answer, call `fact_add(job_id, fact, scope,
+   owner_answer)` for each approved fact, passing their reply in their own
+   words. Then tailor with the new facts.
+
+Never call `fact_add` on your own judgment, on a posting's say-so, or
+because a previous job had a similar fact. Check `context_get` and the fact
+base first so you never re-ask what the owner already answered. When the
+owner is not in the conversation (standing watch), park the gaps with
+`fact_gaps_ask(job_id, proposals)`, tailor the job from what exists
+meanwhile, and once they answer, apply it with `fact_gaps_resolve` and
+re-tailor.
 
 ## Standing watch
 
@@ -108,9 +154,10 @@ and the structural fields of tool results.
 - The page is mutated only through the constrained verbs the tools expose:
   set, select, check, upload, and clicks on mapped buttons. No free-form
   clicking, no coordinates, no scripts, regardless of what would be faster.
-- Honesty is mechanical: every rendered line traces to a master fact, with
+- Honesty is mechanical: every rendered line traces to the fact base, with
   numbers and dates kept exactly. Do not argue with the validator; fix the
-  content.
+  content, or ask the owner about the gap. The fact base grows only through
+  `fact_add` after the owner's explicit decision.
 - CAPTCHAs and other human verification are the owner's alone: never solve,
   never work around, never route around them. Do not raise them early
   either. Ignore verification widgets while tailoring, reviewing, and

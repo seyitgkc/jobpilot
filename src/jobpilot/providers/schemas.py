@@ -1,8 +1,9 @@
 """Structured inputs and outputs for provider calls, validated with pydantic.
 
-The fact base is the owner's resume as addressable entries; the system reads
-it and never writes it. A TailorPlan references facts by id, which is what
-makes the honesty validator mechanical.
+The fact base is the owner's resume as addressable entries. The system only
+writes to it through resume.add_fact, after the owner has explicitly agreed to
+a new fact; tailoring never edits it. A TailorPlan references facts by id,
+which is what makes the honesty validator mechanical.
 """
 
 from __future__ import annotations
@@ -112,17 +113,22 @@ class TailorConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     rules: list[str] = []
-    token_overlap_min: float = 0.35
+    token_overlap_min: float = 0.25
     notes: str | None = None
     validator_feedback: list[str] | None = None
     compile_log: str | None = None
 
 
 class RenderedFact(BaseModel):
+    """One selected fact and the text it renders as. label only applies to
+    skill groups: it renames the group heading for this resume, and every
+    named entity in it must exist somewhere in the fact base."""
+
     model_config = ConfigDict(extra="forbid")
 
     fact_id: str
     rendered_text: str
+    label: str | None = None
 
 
 class PlannedExperience(BaseModel):
@@ -137,8 +143,12 @@ class PlannedExperience(BaseModel):
 
 
 class TailorPlan(BaseModel):
+    """headline, when set, replaces the profile headline for this resume.
+    Like the summary, it may draw on anything in the fact base."""
+
     model_config = ConfigDict(extra="forbid")
 
+    headline: str | None = None
     section_order: list[str] = list(SECTIONS)
     summary: RenderedFact | None = None
     skills: list[RenderedFact] = []

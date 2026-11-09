@@ -24,6 +24,7 @@ KINDS = frozenset(
         "workday_manual",
         "submit_approval",
         "resume_approval",
+        "fact_gap",
         "session_expired",
         "other",
     }

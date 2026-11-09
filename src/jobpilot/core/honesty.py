@@ -1,10 +1,23 @@
 """Deterministic honesty validation of tailor plans.
 
-Every rendered text must trace to its master fact: no new named entities, no
-changed numbers or dates, bounded paraphrase (token overlap), bullets only
-under their own experience, skills selected but never invented. Hard rules
-from the rules store are enforced here as well. The validator rejects plans;
-it never edits them.
+Every rendered text must trace to the fact base, with a grounding scope that
+matches what the text claims:
+
+- A bullet speaks about one experience or project. Its named entities may
+  come from anywhere in that entry (the bullet, its sibling bullets, and the
+  heading), so a rewrite can surface a technology the same job already
+  lists. Numbers and dates must appear in the bullet's own master text.
+- The summary, the headline, and skill-group labels speak about the whole
+  career, so they may draw entities, numbers, and dates from anywhere in
+  the fact base.
+- Skills may move between groups and be reordered or dropped; a skill that
+  exists in no group is never accepted.
+
+Paraphrase stays bounded by token overlap against the same scope. Anything
+the owner has not stated in the fact base is rejected with a pointer to
+fact_add, which needs the owner's explicit decision. Hard rules from the
+rules store are enforced here as well. The validator rejects plans; it
+never edits them.
 """
 
 from __future__ import annotations
@@ -65,29 +78,44 @@ def _entity_candidates(text: str) -> set[str]:
     return candidates
 
 
+_GAP_HINT = (
+    "; if the owner has this, ask them whether to add it to the fact base "
+    "or to this resume only (fact_add) before using it"
+)
+
+
 def _check_text(
     fact_id: str,
-    master: str,
+    grounding: str,
     rendered: str,
     overlap_min: float,
     out: list[Violation],
+    number_source: str | None = None,
+    scope: str = "the master text",
 ) -> None:
-    master_lower = master.lower()
-    master_tokens = set(_tokens(master))
+    """grounding is the text named entities and overlap are measured
+    against; number_source (default: grounding) is where numbers and dates
+    must appear verbatim."""
+    grounding_lower = grounding.lower()
+    grounding_tokens = set(_tokens(grounding))
+    numbers_from = grounding if number_source is None else number_source
 
     for entity in sorted(_entity_candidates(rendered)):
-        if entity.lower() not in master_lower:
+        bare = entity.rstrip(".:;")
+        if entity.lower() not in grounding_lower and bare.lower() not in grounding_lower:
             out.append(
                 Violation(
                     code="entity_added",
                     fact_id=fact_id,
-                    message=f"{entity!r} does not appear in the master text",
+                    message=f"{bare!r} does not appear in {scope}{_GAP_HINT}",
                 )
             )
 
-    master_numbers = set(_NUMBER.findall(master))
+    master_numbers = set(_NUMBER.findall(numbers_from))
     for number in set(_NUMBER.findall(rendered)):
-        if number not in master_numbers:
+        if number not in master_numbers and number.rstrip(".,") not in {
+            n.rstrip(".,") for n in master_numbers
+        }:
             out.append(
                 Violation(
                     code="number_changed",
@@ -97,7 +125,7 @@ def _check_text(
             )
 
     for date in set(_MONTH_YEAR.findall(rendered)):
-        if date not in master:
+        if date not in numbers_from:
             out.append(
                 Violation(
                     code="date_changed",
@@ -108,9 +136,9 @@ def _check_text(
 
     rendered_tokens = _tokens(rendered)
     if rendered_tokens:
-        overlap = sum(1 for token in rendered_tokens if token in master_tokens) / len(
-            rendered_tokens
-        )
+        overlap = sum(
+            1 for token in rendered_tokens if token in grounding_tokens
+        ) / len(rendered_tokens)
         if overlap < overlap_min:
             out.append(
                 Violation(
@@ -122,6 +150,37 @@ def _check_text(
                     ),
                 )
             )
+
+
+def _fact_strings(fact) -> list[str]:
+    return [
+        value
+        for value in (fact.text, fact.label, fact.org, fact.role, fact.location)
+        if value
+    ]
+
+
+def corpus_text(facts: FactBase) -> str:
+    """Everything the owner has stated, as one grounding text."""
+    parts: list[str] = []
+    profile = facts.profile
+    for value in (profile.headline, profile.location, profile.languages):
+        if value:
+            parts.append(value)
+    for fact in facts.facts:
+        parts.extend(_fact_strings(fact))
+    return "\n".join(parts)
+
+
+def entry_text(facts: FactBase, parent_id: str) -> str:
+    """One experience or project: its heading plus all of its bullets."""
+    parts: list[str] = []
+    parent = facts.by_id(parent_id)
+    if parent is not None:
+        parts.extend(_fact_strings(parent))
+    for bullet in facts.bullets_of(parent_id):
+        parts.append(bullet.text)
+    return "\n".join(parts)
 
 
 def _split_items(text: str) -> list[str]:
@@ -168,27 +227,48 @@ def validate_plan(
             return None
         return fact
 
+    corpus = corpus_text(facts)
+
+    if plan.headline is not None:
+        _check_text(
+            "profile.headline", corpus, plan.headline, 0.0, violations,
+            scope="the fact base",
+        )
+
     if plan.summary is not None:
         fact = resolve(plan.summary.fact_id, "summary")
         if fact is not None:
             _check_text(
-                fact.id, fact.text, plan.summary.rendered_text, overlap_min, violations
+                fact.id, corpus, plan.summary.rendered_text, overlap_min,
+                violations, scope="the fact base",
             )
 
+    all_skills = {
+        skill
+        for group in facts.of_kind("skill_group")
+        for skill in _split_items(group.text)
+    }
     for item in plan.skills:
         fact = resolve(item.fact_id, "skill_group")
         if fact is None:
             continue
-        master_items = set(_split_items(fact.text))
         for skill in _split_items(item.rendered_text):
-            if skill not in master_items:
+            if skill not in all_skills:
                 violations.append(
                     Violation(
                         code="skill_added",
                         fact_id=fact.id,
-                        message=f"{skill!r} is not in the master skill group",
+                        message=(
+                            f"{skill!r} is not in any skill group of the fact "
+                            f"base{_GAP_HINT}"
+                        ),
                     )
                 )
+        if item.label is not None:
+            _check_text(
+                fact.id, corpus, item.label, 0.0, violations,
+                scope="the fact base",
+            )
 
     seen_bullets: set[str] = set()
 
@@ -222,7 +302,13 @@ def validate_plan(
                     )
                     continue
                 _check_text(
-                    fact.id, fact.text, bullet.rendered_text, overlap_min, violations
+                    fact.id,
+                    entry_text(facts, fact.parent),
+                    bullet.rendered_text,
+                    overlap_min,
+                    violations,
+                    number_source=fact.text,
+                    scope=f"this {parent_kind} in the fact base",
                 )
 
     check_group(plan.experience, "experience")
@@ -243,6 +329,15 @@ def validate_plan(
 
 def _all_rendered(plan: TailorPlan) -> list[RenderedFact]:
     rendered = list(plan.skills)
+    rendered.extend(
+        RenderedFact(fact_id=item.fact_id, rendered_text=item.label)
+        for item in plan.skills
+        if item.label
+    )
+    if plan.headline:
+        rendered.append(
+            RenderedFact(fact_id="profile.headline", rendered_text=plan.headline)
+        )
     if plan.summary is not None:
         rendered.append(plan.summary)
     for planned in list(plan.experience) + list(plan.projects):

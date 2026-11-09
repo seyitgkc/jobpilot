@@ -25,6 +25,7 @@ from ..core import (
     context as context_module,
     credentials,
     events,
+    factgaps,
     fill,
     repo,
     resolve,
@@ -185,6 +186,44 @@ class JobpilotApi:
                 "diff": result.diff,
                 "artifacts": {k: v.path for k, v in result.artifacts.items()},
             }
+        )
+
+    # Fact base growth: only on the owner's explicit decision.
+
+    def fact_add(
+        self, job_id: int, fact: dict, scope: str, owner_answer: str
+    ) -> dict:
+        """Add a fact the owner has just agreed to. Ask first, every time:
+        show the owner the exact wording and let them choose scope "master"
+        (add to the fact base for all future resumes) or "job" (this job's
+        resume only), or skip it. owner_answer is their reply in their own
+        words and is kept on the timeline. fact uses the fact base shape:
+        id, kind (bullet, skill_group, ...), text, and parent for bullets.
+        To add a skill to an existing group, add a new skill_group fact
+        instead of editing the old one."""
+        return _plain(
+            factgaps.add_fact(
+                self.conn, self.paths, job_id, fact, scope, owner_answer
+            )
+        )
+
+    def fact_gaps_ask(self, job_id: int, proposals: list[dict]) -> dict:
+        """Park every missing-fact proposal for one job as a single fact_gap
+        blocker, for when the owner is not in the conversation. Each
+        proposal: {"fact": {...}, "posting_ask": what the posting wants,
+        "suggested_scope": "master" or "job"}."""
+        return _plain(factgaps.ask_gaps(self.conn, self.paths, job_id, proposals))
+
+    def fact_gaps_resolve(
+        self, blocker_id: int, decisions: list[dict], owner_answer: str
+    ) -> dict:
+        """Apply the owner's answer to a fact_gap blocker. decisions:
+        [{"index": n, "decision": "master"|"job"|"skip", "text": optional
+        corrected wording}], one per proposal."""
+        return _plain(
+            factgaps.resolve_gaps(
+                self.conn, self.paths, blocker_id, decisions, owner_answer
+            )
         )
 
     def job_glance(self, job_id: int) -> dict | None:
@@ -466,6 +505,7 @@ def create_server(
         "job_approve_submit", "job_abandon", "job_delete",
         "job_mark_manual_submitted",
         "job_tailor_context", "job_tailor_submit", "job_glance",
+        "fact_add", "fact_gaps_ask", "fact_gaps_resolve",
         "form_extract", "form_map_context", "form_fill", "job_submit",
         "blocker_list", "blocker_get", "blocker_answer", "blocker_execute",
         "blocker_mark_manual_resolved",
